@@ -1,0 +1,19 @@
+N
+{
+  "name": "cca-monitor",
+  "version": "1.0.0",
+  "description": "CCA auction data collector and new auction monitor",
+  "type": "module",
+  "scripts": {
+    "analyze": "npx tsx cca-collector.ts analyze",
+    "watch": "npx tsx cca-collector.ts watch"
+  },
+  "dependencies": {
+    "viem": "^2.21.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
