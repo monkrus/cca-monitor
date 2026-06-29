@@ -29,16 +29,28 @@ const unichain = defineChain({
 // ─── Factory address (same across all chains) ───────────────────────────────
 const FACTORY_ADDRESS = '0x0000ccaDF55C911a2FbC0BB9d2942Aa77c6FAa1D' as const
 
+// ─── Q96 math ────────────────────────────────────────────────────────────────
+const Q96 = 2n ** 96n
+function q96ToDecimal(q96: string | bigint | undefined, decimals = 8): string {
+  if (!q96) return '?'
+  const big = BigInt(q96)
+  const whole = big / Q96
+  const frac = big % Q96
+  const fracDecimal = (frac * 10n ** BigInt(decimals)) / Q96
+  return `${whole}.${fracDecimal.toString().padStart(decimals, '0')}`
+}
+
 // ─── Known completed auctions (add more as they happen) ─────────────────────
 // Discovery: Uniswap app URL pattern: app.uniswap.org/explore/auctions/{chain}/{contractAddress}
 // Also monitor @UniswapAuctions on X — they post every new auction publicly
+// Factory events indexed via Blockscout: eth.blockscout.com / base.blockscout.com
 const KNOWN_AUCTIONS = [
   {
     name: 'AZTEC',
     chain: 'mainnet',
-    contractAddress: '0x608c4e792c65f5527b3f70715dea44d3b302f4ee' as `0x${string}`, // found via factory AuctionCreated event at block 23856648
+    contractAddress: '0x608c4e792c65f5527b3f70715dea44d3b302f4ee' as `0x${string}`,
     startBlock: 23790741n,
-    notes: '$59M raised, 17,000 bidders, Nov-Dec 2025. Concluded block 23,955,276. Token: 0xA27EC0006e59f245217Ff08CD52A7E8b169E62D2. Validation hook: 0x2DD6e0E331DE9743635590F6c8BC5038374CAc9D (ZK Passport + contributor allowlist).',
+    notes: '$59M raised, 17,000 bidders, Nov-Dec 2025. Concluded block 23,955,276. Validation hook: ZK Passport + contributor allowlist.',
     isTest: false,
   },
   {
@@ -46,23 +58,23 @@ const KNOWN_AUCTIONS = [
     chain: 'mainnet',
     contractAddress: '0xfFDab1083fCbBCEE32997795388B3D61Ebab786E' as `0x${string}`,
     startBlock: 0n,
-    notes: '1,016 ETH raised, 577 bids, 292 unique wallets, Jun 3-11 2026. 4th largest CCA by volume. HardFi/gold platform. 2.5% supply auctioned.',
+    notes: '1,016 ETH raised, 577 bids, 292 unique wallets, Jun 3-11 2026. 4th largest CCA by volume. HardFi/gold platform.',
     isTest: false,
   },
   {
-    name: 'UNKNOWN_ETH',
+    name: 'wOCT',
     chain: 'mainnet',
     contractAddress: '0xb3079Ec6b82f22A1ABfDCA1A22659aB07Cdf2f0F' as `0x${string}`,
     startBlock: 0n,
-    notes: 'Found via Uniswap app URL — identity unknown, run to check currency field',
+    notes: 'Wrapped OCT token. 7-day auction, ETH currency, graduated. Found via Uniswap app.',
     isTest: false,
   },
   {
     name: 'CAP',
     chain: 'base',
-    contractAddress: '0x' as `0x${string}`, // TODO: find via Basescan — one of the May 26 cluster
+    contractAddress: '0x' as `0x${string}`, // not yet in Base factory events — auction ran Jun 8-17 2026
     startBlock: 46499907n,
-    notes: '1,002 bids, 5.5x oversubscribed, $106M FDV, $16.4M raised in USDC, floor $75M FDV, cleared at $0.011/CAP. Jun 8-17 2026.',
+    notes: '1,002 bids, 5.5x oversubscribed, $106M FDV, $16.4M raised in USDC, floor $75M FDV, cleared at $0.011/CAP.',
     isTest: false,
   },
   // ── Test/early auctions on Base (Dec 2025 – Jan 2026) ─────────────────────
@@ -74,7 +86,7 @@ const KNOWN_AUCTIONS = [
   { name: 'TEST_DEC26B', chain: 'base', contractAddress: '0x44c18e14fa976cde87f702aa564df28f33ee9d36' as `0x${string}`, startBlock: 39995131n, notes: 'Dec 26 2025 — test deployment', isTest: true },
   { name: 'TEST_JAN05',  chain: 'base', contractAddress: '0xcf984ee5001acc3707926d6cc9597fdddc771193' as `0x${string}`, startBlock: 40426331n, notes: 'Jan 5 2026 — test deployment',  isTest: true },
   { name: 'TEST_JAN19',  chain: 'base', contractAddress: '0x86cc18d5943cb81e10f3b4dea96762433a823047' as `0x${string}`, startBlock: 41019521n, notes: 'Jan 19 2026 — test deployment', isTest: true },
-  // May 26 cluster — test deployments (100% tick spacing, <10 min durations)
+  // May 26 cluster — test deployments (100% tick spacing, <10 min durations, same token)
   { name: 'TEST_MAY26A', chain: 'base', contractAddress: '0x85e34f170f6f89e377e23531246c727ede55775e' as `0x${string}`, startBlock: 46499907n, notes: 'May 26 2026 — test deployment', isTest: true },
   { name: 'TEST_MAY26B', chain: 'base', contractAddress: '0x8175727b13e020d0811ced94a8863b7f49e417b1' as `0x${string}`, startBlock: 46500844n, notes: 'May 26 2026 — test deployment', isTest: true },
   { name: 'TEST_MAY26C', chain: 'base', contractAddress: '0x1cdadeeceb6017d19e64b4dc23377d003d174867' as `0x${string}`, startBlock: 46501079n, notes: 'May 26 2026 — test deployment', isTest: true },
@@ -83,12 +95,10 @@ const KNOWN_AUCTIONS = [
 
 // ─── ABI fragments we care about ────────────────────────────────────────────
 
-// Factory emits this when a new auction is deployed
 const FACTORY_ABI = [
   parseAbiItem('event AuctionCreated(address indexed auction, address indexed token, uint256 totalSupply)'),
 ] as const
 
-// Individual auction contract — individual state variable reads (not packed struct)
 const AUCTION_ABI = [
   { name: 'currency',               type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { name: 'tokensRecipient',        type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
@@ -108,7 +118,6 @@ const AUCTION_ABI = [
   parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint256 amount)'),
 ] as const
 
-// ERC20 token — for identifying auctions by name/symbol
 const ERC20_ABI = [
   { name: 'name',     type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
   { name: 'symbol',   type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
@@ -134,7 +143,22 @@ function getClient(chainName: string) {
   })
 }
 
-// ─── Chunked getLogs with retry (works with free-tier RPCs) ──────────────────
+// ─── Webhook alerting ────────────────────────────────────────────────────────
+async function sendWebhook(payload: Record<string, any>) {
+  const url = process.env.WEBHOOK_URL
+  if (!url) return
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch (err: any) {
+    console.error(`Webhook failed: ${err.message}`)
+  }
+}
+
+// ─── Chunked getLogs with retry ──────────────────────────────────────────────
 const LOG_CHUNK_SIZE = 5000n
 const MAX_LOG_RANGE = 50000n
 
@@ -185,7 +209,7 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
   console.log('='.repeat(60))
 
   if (auction.contractAddress === '0x') {
-    console.log('⚠  Contract address not set yet — fill in KNOWN_AUCTIONS')
+    console.log('  Contract address not set yet — fill in KNOWN_AUCTIONS')
     return null
   }
 
@@ -195,7 +219,6 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
   try {
     const address = auction.contractAddress
 
-    // Read all fields individually (not via packed struct)
     const [currency, startBlock, endBlock, tickSpacing, validationHook,
            floorPrice, requiredRaise, clearingPrice, graduated, totalRaised, tokenAddr] =
       await client.multicall({
@@ -224,7 +247,7 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
     const tickBig = ok(tickSpacing) ? BigInt(ok(tickSpacing)) : 0n
     const tickPct = floorBig > 0n ? (Number(tickBig * 1_000_000n / floorBig) / 10_000).toFixed(4) : '?'
 
-    // Read token name/symbol if we have a token address
+    // Read token name/symbol
     const tokenAddress = ok(tokenAddr) as `0x${string}` | undefined
     let tokenName: string | undefined
     let tokenSymbol: string | undefined
@@ -241,18 +264,24 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
       } catch {}
     }
 
+    // Decode Q96 prices to human-readable
+    const floorDecimal = q96ToDecimal(ok(floorPrice)?.toString())
+    const clearingDecimal = q96ToDecimal(ok(clearingPrice)?.toString())
+    const clearingVsFloor = (floorBig > 0n && ok(clearingPrice))
+      ? `${(Number(BigInt(ok(clearingPrice)) * 10000n / floorBig) / 100).toFixed(1)}%`
+      : '?'
+
     const result = {
       name: auction.name,
       chain: auction.chain,
       isTest: auction.isTest,
-      // Token info
       tokenAddress,
       tokenName,
       tokenSymbol,
-      // Config params
       startBlock: startBlockVal?.toString(),
       endBlock: endBlockVal?.toString(),
       floorPrice_Q96: ok(floorPrice)?.toString(),
+      floorPrice: floorDecimal,
       tickSpacing_Q96: ok(tickSpacing)?.toString(),
       tickSpacingAsPctOfFloor: `${tickPct}%`,
       durationBlocks,
@@ -260,11 +289,11 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
       requiredRaise: ok(requiredRaise)?.toString(),
       hasValidationHook: ok(validationHook) != null && ok(validationHook) !== '0x0000000000000000000000000000000000000000',
       currency: ok(currency) as string | undefined,
-      // Outcomes
       graduated: ok(graduated) as boolean | undefined,
       finalClearingPrice_Q96: ok(clearingPrice)?.toString(),
+      clearingPrice: clearingDecimal,
+      clearingVsFloor,
       totalRaised: ok(totalRaised)?.toString(),
-      // Risk flags
       flags: [] as string[],
     }
 
@@ -289,7 +318,7 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
     console.log(JSON.stringify(result, null, 2))
     console.log(`Flags: ${result.flags.length === 0 ? 'None' : result.flags.join(', ')}${tokenLabel}`)
 
-    // Count unique bidders from BidSubmitted events
+    // Count unique bidders
     const logFromBlock = startBlockVal || auction.startBlock
     const logToBlock = endBlockVal || (logFromBlock + 50000n)
     console.log(`Fetching bid events (blocks ${logFromBlock}–${logToBlock})...`)
@@ -326,6 +355,7 @@ async function watchForNewAuctions() {
   console.log('\nStarting new auction monitor...')
   console.log('Watching factory on: Ethereum, Base, Arbitrum, Unichain')
   console.log('Factory address:', FACTORY_ADDRESS)
+  if (process.env.WEBHOOK_URL) console.log('Webhook: enabled')
   console.log('-'.repeat(60))
 
   const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain']
@@ -351,7 +381,17 @@ async function watchForNewAuctions() {
             console.log(`  Total supply:  ${totalSupply?.toString()}`)
             console.log(`  Explorer:      ${chainCfg.explorer}/address/${auction}`)
             console.log(`  Uniswap:       https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`)
-            console.log(`  Action:        Add to KNOWN_AUCTIONS and run analyzeAuction()`)
+
+            sendWebhook({
+              event: 'new_cca',
+              chain: name,
+              timestamp,
+              auction,
+              token,
+              totalSupply: totalSupply?.toString(),
+              explorer: `${chainCfg.explorer}/address/${auction}`,
+              uniswap: `https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`,
+            })
           }
         },
         onError: (err) => {
