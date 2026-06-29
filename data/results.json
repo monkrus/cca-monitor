@@ -1,0 +1,89 @@
+{
+  "timestamp": "2026-06-29T17:37:10.283Z",
+  "summary": {
+    "total": 3,
+    "real": 3,
+    "tests": 0,
+    "graduated": 3,
+    "failed": 0,
+    "withHooks": 1
+  },
+  "auctions": [
+    {
+      "name": "AZTEC",
+      "chain": "mainnet",
+      "isTest": false,
+      "tokenAddress": "0x4B00C30cEBA3F188407C6e6741cc5b43561f1F6e",
+      "tokenName": "VirtualAztecToken",
+      "tokenSymbol": "VAZT",
+      "startBlock": "23790741",
+      "endBlock": "23955276",
+      "floorPrice_Q96": "753956294022871543408300",
+      "floorPrice": "0.00000951",
+      "tickSpacing_Q96": "7539562940228715434083",
+      "tickSpacingAsPctOfFloor": "1.0000%",
+      "durationBlocks": 164535,
+      "durationHours": 548,
+      "hasValidationHook": true,
+      "currency": "0x0000000000000000000000000000000000000000",
+      "graduated": true,
+      "finalClearingPrice_Q96": "1228948759257280615755529",
+      "clearingPrice": "0.00001551",
+      "clearingVsFloor": "163.0%",
+      "flags": [
+        "DURATION_LONG: auction over 7 days"
+      ]
+    },
+    {
+      "name": "STRATO",
+      "chain": "mainnet",
+      "isTest": false,
+      "tokenAddress": "0x4c93B9FbF7Fd1777CCBcBc538B1d0a8b58fB1ad6",
+      "tokenName": "Ethereum STRATO",
+      "tokenSymbol": "STRATO",
+      "startBlock": "25237800",
+      "endBlock": "25295401",
+      "floorPrice_Q96": "10424758225561097051782096",
+      "floorPrice": "0.00013157",
+      "tickSpacing_Q96": "651547389097568565736381",
+      "tickSpacingAsPctOfFloor": "6.2500%",
+      "durationBlocks": 57601,
+      "durationHours": 192,
+      "hasValidationHook": false,
+      "currency": "0x0000000000000000000000000000000000000000",
+      "graduated": true,
+      "finalClearingPrice_Q96": "42416799099971852487340871",
+      "clearingPrice": "0.00053537",
+      "clearingVsFloor": "406.9%",
+      "flags": [
+        "DURATION_LONG: auction over 7 days",
+        "NO_HOOK: no validation hook"
+      ]
+    },
+    {
+      "name": "wOCT",
+      "chain": "mainnet",
+      "isTest": false,
+      "tokenAddress": "0x4647e1fE715c9e23959022C2416C71867F5a6E80",
+      "tokenName": "Wrapped OCT",
+      "tokenSymbol": "wOCT",
+      "startBlock": "24870973",
+      "endBlock": "24921374",
+      "floorPrice_Q96": "4294967300",
+      "floorPrice": "0.00000000",
+      "tickSpacing_Q96": "42949673",
+      "tickSpacingAsPctOfFloor": "1.0000%",
+      "durationBlocks": 50401,
+      "durationHours": 168,
+      "hasValidationHook": false,
+      "currency": "0x0000000000000000000000000000000000000000",
+      "graduated": true,
+      "finalClearingPrice_Q96": "979611173134818192091763528560205183",
+      "clearingPrice": "12364431.30886000",
+      "clearingVsFloor": "2.2808349975908276e+28%",
+      "flags": [
+        "NO_HOOK: no validation hook"
+      ]
+    }
+  ]
+}
