@@ -26,8 +26,10 @@ const unichain = defineChain({
   blockExplorers: { default: { name: 'Uniscan', url: 'https://uniscan.xyz' } },
 })
 
-// ─── Factory address (same across all chains) ───────────────────────────────
-const FACTORY_ADDRESS = '0x0000ccaDF55C911a2FbC0BB9d2942Aa77c6FAa1D' as const
+// ─── Factory addresses (same across all chains) ─────────────────────────────
+// V1: 0x0000ccaDF55C911a2FbC0BB9d2942Aa77c6FAa1D (early auctions, Dec 2025 – Feb 2026)
+// V2: 0xcccccccae7503cac057829bf2811de42e16e0bd5 (current — wOCT, STRATO, CAP, etc.)
+const FACTORY_ADDRESS = '0xcccccccae7503cac057829bf2811de42e16e0bd5' as const
 
 // ─── Q96 math ────────────────────────────────────────────────────────────────
 const Q96 = 2n ** 96n
@@ -71,10 +73,10 @@ const KNOWN_AUCTIONS = [
   },
   {
     name: 'CAP',
-    chain: 'base',
-    contractAddress: '0x' as `0x${string}`, // not yet in Base factory events — auction ran Jun 8-17 2026
-    startBlock: 46499907n,
-    notes: '1,002 bids, 5.5x oversubscribed, $106M FDV, $16.4M raised in USDC, floor $75M FDV, cleared at $0.011/CAP.',
+    chain: 'mainnet',
+    contractAddress: '0x20eebd78151eae9ed2380ac613204aaf5ca0cd24' as `0x${string}`,
+    startBlock: 0n,
+    notes: '1,002 bids, 5.5x oversubscribed, $106M FDV, $16.4M raised in USDC, floor $75M FDV, cleared at $0.011/CAP. Token: rCAP.',
     isTest: false,
   },
   // ── Test/early auctions on Base (Dec 2025 – Jan 2026) ─────────────────────
