@@ -160,6 +160,26 @@ async function sendWebhook(payload: Record<string, any>) {
   }
 }
 
+// ─── Persistent data helpers ────────────────────────────────────────────────
+function appendDetection(detection: Record<string, any>) {
+  fs.mkdirSync('data', { recursive: true })
+  const file = 'data/live-detections.json'
+  const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : []
+  existing.push(detection)
+  fs.writeFileSync(file, JSON.stringify(existing, null, 2))
+}
+
+function appendResult(result: Record<string, any>) {
+  fs.mkdirSync('data', { recursive: true })
+  const file = 'data/results.json'
+  const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : { timestamp: '', summary: {}, auctions: [] }
+  existing.auctions.push(result)
+  existing.timestamp = new Date().toISOString()
+  existing.summary.total = existing.auctions.length
+  fs.writeFileSync(file, JSON.stringify(existing, null, 2))
+  console.log(`  Saved to ${file} (${existing.auctions.length} auctions total)`)
+}
+
 // ─── Chunked getLogs with retry ──────────────────────────────────────────────
 const LOG_CHUNK_SIZE = 5000n
 const MAX_LOG_RANGE = 50000n
@@ -398,23 +418,35 @@ async function watchForNewAuctions() {
         for (const log of logs) {
           const { auction, token } = log.args as any
           const timestamp = new Date().toISOString()
+          const uniswapUrl = `https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`
 
           console.log(`\nNEW CCA DETECTED on ${name.toUpperCase()}`)
           console.log(`  Time:          ${timestamp}`)
           console.log(`  Auction addr:  ${auction}`)
           console.log(`  Token addr:    ${token}`)
           console.log(`  Explorer:      ${chainCfg.explorer}/address/${auction}`)
-          console.log(`  Uniswap:       https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`)
+          console.log(`  Uniswap:       ${uniswapUrl}`)
 
-          sendWebhook({
+          // Save detection to live log
+          const detection = {
             event: 'new_cca',
             chain: name,
             timestamp,
+            block: Number(log.blockNumber),
             auction,
             token,
             explorer: `${chainCfg.explorer}/address/${auction}`,
-            uniswap: `https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`,
-          })
+            uniswap: uniswapUrl,
+          }
+          appendDetection(detection)
+
+          sendWebhook(detection)
+
+          // Auto-analyze the new auction
+          console.log('  Auto-analyzing...')
+          const entry = { name: `NEW_${name.toUpperCase()}`, chain: name, contractAddress: auction as `0x${string}`, startBlock: 0n, notes: `Auto-detected ${timestamp}`, isTest: false }
+          const result = await analyzeAuction(entry)
+          if (result) appendResult(result)
         }
 
         lastBlock[name] = currentBlock
