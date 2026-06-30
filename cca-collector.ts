@@ -98,7 +98,7 @@ const KNOWN_AUCTIONS = [
 // ─── ABI fragments we care about ────────────────────────────────────────────
 
 const FACTORY_ABI = [
-  parseAbiItem('event AuctionCreated(address indexed auction, address indexed token, uint256 totalSupply)'),
+  parseAbiItem('event AuctionCreated(address indexed auction, address indexed token, uint256 amount, bytes configData)'),
 ] as const
 
 const AUCTION_ABI = [
@@ -135,8 +135,8 @@ const CHAINS: Record<string, { chain: any, secsPerBlock: number, explorer: strin
 }
 
 // ─── RPC clients ────────────────────────────────────────────────────────────
-function getClient(chainName: string) {
-  const rpcUrl = process.env[`RPC_URL_${chainName.toUpperCase()}`]
+function getClient(chainName: string, usePublicRpc = false) {
+  const rpcUrl = usePublicRpc ? undefined : process.env[`RPC_URL_${chainName.toUpperCase()}`]
   const chainCfg = CHAINS[chainName]
   if (!chainCfg) throw new Error(`Unknown chain: ${chainName}`)
   return createPublicClient({
@@ -352,7 +352,7 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
   }
 }
 
-// ─── LIVE MONITOR: Watch factory for new auctions across all chains ──────────
+// ─── LIVE MONITOR: Poll for new auctions across all chains (no filters) ─────
 async function watchForNewAuctions() {
   console.log('\nStarting new auction monitor...')
   console.log('Watching factory on: Ethereum, Base, Arbitrum, Unichain')
@@ -361,60 +361,77 @@ async function watchForNewAuctions() {
   console.log('-'.repeat(60))
 
   const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain']
-  const unwatchers: (() => void)[] = []
+  const lastBlock: Record<string, bigint> = {}
+
+  // Initialize last-seen block for each chain (with 10s timeout per chain)
+  const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))])
 
   for (const name of chainNames) {
     try {
       const client = getClient(name)
-      const chainCfg = CHAINS[name]
-      const unwatch = client.watchContractEvent({
-        address: FACTORY_ADDRESS,
-        abi: FACTORY_ABI,
-        eventName: 'AuctionCreated',
-        onLogs: (logs) => {
-          for (const log of logs) {
-            const { auction, token, totalSupply } = log.args as any
-            const timestamp = new Date().toISOString()
-
-            console.log(`\nNEW CCA DETECTED on ${name.toUpperCase()}`)
-            console.log(`  Time:          ${timestamp}`)
-            console.log(`  Auction addr:  ${auction}`)
-            console.log(`  Token addr:    ${token}`)
-            console.log(`  Total supply:  ${totalSupply?.toString()}`)
-            console.log(`  Explorer:      ${chainCfg.explorer}/address/${auction}`)
-            console.log(`  Uniswap:       https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`)
-
-            sendWebhook({
-              event: 'new_cca',
-              chain: name,
-              timestamp,
-              auction,
-              token,
-              totalSupply: totalSupply?.toString(),
-              explorer: `${chainCfg.explorer}/address/${auction}`,
-              uniswap: `https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`,
-            })
-          }
-        },
-        onError: (err) => {
-          console.error(`Watch error on ${name}:`, err.message)
-        },
-      })
-
-      unwatchers.push(unwatch)
-      console.log(`  Watching ${name}`)
+      lastBlock[name] = await withTimeout(client.getBlockNumber(), 15_000)
+      console.log(`  Watching ${name} (from block ${lastBlock[name]})`)
     } catch (err: any) {
-      console.error(`  Failed to watch ${name}: ${err.message}`)
+      console.error(`  Skipping ${name}: ${err.message}`)
     }
   }
 
+  console.log('\nMonitor running (polling every 30s). Press Ctrl+C to stop.\n')
+
+  const poll = async () => {
+    for (const name of chainNames) {
+      if (lastBlock[name] === undefined) continue
+      try {
+        const client = getClient(name)
+        const chainCfg = CHAINS[name]
+        const currentBlock = await client.getBlockNumber()
+        if (currentBlock <= lastBlock[name]) continue
+
+        const logs = await client.getLogs({
+          address: FACTORY_ADDRESS,
+          event: parseAbiItem('event AuctionCreated(address indexed auction, address indexed token, uint256 amount, bytes configData)'),
+          fromBlock: lastBlock[name] + 1n,
+          toBlock: currentBlock,
+        })
+
+        for (const log of logs) {
+          const { auction, token } = log.args as any
+          const timestamp = new Date().toISOString()
+
+          console.log(`\nNEW CCA DETECTED on ${name.toUpperCase()}`)
+          console.log(`  Time:          ${timestamp}`)
+          console.log(`  Auction addr:  ${auction}`)
+          console.log(`  Token addr:    ${token}`)
+          console.log(`  Explorer:      ${chainCfg.explorer}/address/${auction}`)
+          console.log(`  Uniswap:       https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`)
+
+          sendWebhook({
+            event: 'new_cca',
+            chain: name,
+            timestamp,
+            auction,
+            token,
+            explorer: `${chainCfg.explorer}/address/${auction}`,
+            uniswap: `https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`,
+          })
+        }
+
+        lastBlock[name] = currentBlock
+      } catch (err: any) {
+        // Silently retry on next poll — transient RPC errors are normal
+      }
+    }
+  }
+
+  const interval = setInterval(poll, 30_000)
+
   process.on('SIGINT', () => {
-    console.log('\nShutting down watchers...')
-    unwatchers.forEach(fn => fn())
+    console.log('\nShutting down...')
+    clearInterval(interval)
     process.exit(0)
   })
 
-  console.log('\nMonitor running. Press Ctrl+C to stop.\n')
   await new Promise(() => {})
 }
 
