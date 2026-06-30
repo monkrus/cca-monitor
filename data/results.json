@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-29T21:09:05.219Z",
+  "timestamp": "2026-06-30T16:55:24.084Z",
   "summary": {
     "total": 4,
     "real": 4,
@@ -16,6 +16,7 @@
       "tokenAddress": "0x4B00C30cEBA3F188407C6e6741cc5b43561f1F6e",
       "tokenName": "VirtualAztecToken",
       "tokenSymbol": "VAZT",
+      "tokenSupply": "36,245,645",
       "startBlock": "23790741",
       "endBlock": "23955276",
       "floorPrice_Q96": "753956294022871543408300",
@@ -26,10 +27,14 @@
       "durationHours": 548,
       "hasValidationHook": true,
       "currency": "0x0000000000000000000000000000000000000000",
+      "currencySymbol": "ETH",
       "graduated": true,
       "finalClearingPrice_Q96": "1228948759257280615755529",
       "clearingPrice": "0.00001551",
       "clearingVsFloor": "163.0%",
+      "currencyRaised": "19388455612712981988961",
+      "currencyRaisedFormatted": "19,388.45 ETH",
+      "totalCleared": "1492678855885713459189737266",
       "flags": [
         "DURATION_LONG: auction over 7 days"
       ]
@@ -41,6 +46,7 @@
       "tokenAddress": "0x4c93B9FbF7Fd1777CCBcBc538B1d0a8b58fB1ad6",
       "tokenName": "Ethereum STRATO",
       "tokenSymbol": "STRATO",
+      "tokenSupply": "3,030,185",
       "startBlock": "25237800",
       "endBlock": "25295401",
       "floorPrice_Q96": "10424758225561097051782096",
@@ -51,10 +57,14 @@
       "durationHours": 192,
       "hasValidationHook": false,
       "currency": "0x0000000000000000000000000000000000000000",
+      "currencySymbol": "ETH",
       "graduated": true,
       "finalClearingPrice_Q96": "42416799099971852487340871",
       "clearingPrice": "0.00053537",
       "clearingVsFloor": "406.9%",
+      "currencyRaised": "803905458055494399266",
+      "currencyRaisedFormatted": "803.90 ETH",
+      "totalCleared": "2499789490673002787603172",
       "flags": [
         "DURATION_LONG: auction over 7 days",
         "NO_HOOK: no validation hook"
@@ -67,6 +77,7 @@
       "tokenAddress": "0x4647e1fE715c9e23959022C2416C71867F5a6E80",
       "tokenName": "Wrapped OCT",
       "tokenSymbol": "wOCT",
+      "tokenSupply": "196,053,261",
       "startBlock": "24870973",
       "endBlock": "24921374",
       "floorPrice_Q96": "4294967300",
@@ -77,10 +88,14 @@
       "durationHours": 168,
       "hasValidationHook": false,
       "currency": "0x0000000000000000000000000000000000000000",
+      "currencySymbol": "ETH",
       "graduated": true,
       "finalClearingPrice_Q96": "979611173134818192091763528560205183",
       "clearingPrice": "12364431.30886000",
       "clearingVsFloor": "2.2808349975908276e+28%",
+      "currencyRaised": "1177257831237408295676",
+      "currencyRaisedFormatted": "1,177.25 ETH",
+      "totalCleared": "99999998999999",
       "flags": [
         "NO_HOOK: no validation hook"
       ]
@@ -92,6 +107,7 @@
       "tokenAddress": "0x9999B7E3cc6979223Ff1aF980b7D8B90B75d9999",
       "tokenName": "Cap Redeemable Token",
       "tokenSymbol": "rCAP",
+      "tokenSupply": "9,600,969,878",
       "startBlock": "25273679",
       "endBlock": "25338479",
       "floorPrice_Q96": "594211218857000",
@@ -102,10 +118,14 @@
       "durationHours": 216,
       "hasValidationHook": true,
       "currency": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "currencySymbol": "USDC",
       "graduated": true,
       "finalClearingPrice_Q96": "843779930776940",
       "clearingPrice": "0.00000000",
       "clearingVsFloor": "142.0%",
+      "currencyRaised": "3842506978834",
+      "currencyRaisedFormatted": "3,842,506.97 USDC",
+      "totalCleared": "399999999999999999366944854",
       "flags": [
         "DURATION_LONG: auction over 7 days"
       ]

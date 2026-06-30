@@ -111,19 +111,20 @@ const AUCTION_ABI = [
   { name: 'tickSpacing',            type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { name: 'validationHook',         type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { name: 'floorPrice',             type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-  { name: 'requiredCurrencyRaised', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint128' }] },
   { name: 'clearingPrice',          type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { name: 'isGraduated',            type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'bool'    }] },
-  { name: 'totalCurrencyRaised',    type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint128' }] },
+  { name: 'currencyRaised',         type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { name: 'totalCleared',           type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { name: 'token',                  type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   parseAbiItem('event CheckpointUpdated(uint256 indexed blockNumber, uint256 clearingPrice, uint24 cumulativeMps)'),
   parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint256 amount)'),
 ] as const
 
 const ERC20_ABI = [
-  { name: 'name',     type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
-  { name: 'symbol',   type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
-  { name: 'decimals', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8'  }] },
+  { name: 'name',        type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string'  }] },
+  { name: 'symbol',      type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string'  }] },
+  { name: 'decimals',    type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8'   }] },
+  { name: 'totalSupply', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
 ] as const
 
 // ─── Chain config ────────────────────────────────────────────────────────────
@@ -185,16 +186,17 @@ function formatTelegramAlert(detection: Record<string, any>, analysis?: Record<s
     `<b>Token:</b> <code>${detection.token}</code>`,
   ]
   if (analysis) {
-    if (analysis.tokenSymbol) lines.push(`<b>Token ID:</b> ${analysis.tokenSymbol} (${analysis.tokenName})`)
-    if (analysis.currency) {
-      const cur = analysis.currency === '0x0000000000000000000000000000000000000000' ? 'ETH'
-        : analysis.currency === '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' ? 'USDC' : analysis.currency
-      lines.push(`<b>Currency:</b> ${cur}`)
-    }
-    if (analysis.durationHours) lines.push(`<b>Duration:</b> ${analysis.durationHours}h`)
+    if (analysis.tokenSymbol) lines.push(`<b>Token:</b> ${analysis.tokenSymbol} (${analysis.tokenName})`)
+    if (analysis.tokenSupply) lines.push(`<b>Supply:</b> ${analysis.tokenSupply}`)
+    lines.push(`<b>Currency:</b> ${analysis.currencySymbol || 'Unknown'}`)
+    if (analysis.durationHours) lines.push(`<b>Duration:</b> ${analysis.durationHours}h (${(analysis.durationHours / 24).toFixed(1)} days)`)
     if (analysis.floorPrice) lines.push(`<b>Floor price:</b> ${analysis.floorPrice}`)
-    lines.push(`<b>Validation hook:</b> ${analysis.hasValidationHook ? 'Yes' : 'No'}`)
-    if (analysis.flags?.length) lines.push(`<b>Flags:</b> ${analysis.flags.join(', ')}`)
+    lines.push(`<b>Validation hook:</b> ${analysis.hasValidationHook ? '✅ Yes (KYC/allowlist)' : '⚠️ No'}`)
+    if (analysis.currencyRaisedFormatted) lines.push(`<b>Total raised:</b> ${analysis.currencyRaisedFormatted}`)
+    if (analysis.totalBids !== undefined) lines.push(`<b>Bids:</b> ${analysis.totalBids} total, ${analysis.uniqueBidders} unique bidders`)
+    if (analysis.graduated !== undefined) lines.push(`<b>Status:</b> ${analysis.graduated ? '✅ Graduated' : '❌ Not graduated'}`)
+    if (analysis.clearingVsFloor && analysis.clearingVsFloor !== '?') lines.push(`<b>Clearing vs floor:</b> ${analysis.clearingVsFloor}`)
+    if (analysis.flags?.length) lines.push(`\n<b>⚠️ Flags:</b>\n${analysis.flags.map((f: string) => `  • ${f}`).join('\n')}`)
   }
   lines.push(``, `<a href="${detection.uniswap}">View on Uniswap</a> | <a href="${detection.explorer}">Explorer</a>`)
   return lines.join('\n')
@@ -282,7 +284,7 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
     const address = auction.contractAddress
 
     const [currency, startBlock, endBlock, tickSpacing, validationHook,
-           floorPrice, requiredRaise, clearingPrice, graduated, totalRaised, tokenAddr] =
+           floorPrice, clearingPrice, graduated, currencyRaisedResult, totalClearedResult, tokenAddr] =
       await client.multicall({
         contracts: [
           { address, abi: AUCTION_ABI as any, functionName: 'currency' },
@@ -291,10 +293,10 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
           { address, abi: AUCTION_ABI as any, functionName: 'tickSpacing' },
           { address, abi: AUCTION_ABI as any, functionName: 'validationHook' },
           { address, abi: AUCTION_ABI as any, functionName: 'floorPrice' },
-          { address, abi: AUCTION_ABI as any, functionName: 'requiredCurrencyRaised' },
           { address, abi: AUCTION_ABI as any, functionName: 'clearingPrice' },
           { address, abi: AUCTION_ABI as any, functionName: 'isGraduated' },
-          { address, abi: AUCTION_ABI as any, functionName: 'totalCurrencyRaised' },
+          { address, abi: AUCTION_ABI as any, functionName: 'currencyRaised' },
+          { address, abi: AUCTION_ABI as any, functionName: 'totalCleared' },
           { address, abi: AUCTION_ABI as any, functionName: 'token' },
         ],
       })
@@ -313,16 +315,39 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
     const tokenAddress = ok(tokenAddr) as `0x${string}` | undefined
     let tokenName: string | undefined
     let tokenSymbol: string | undefined
+    let tokenDecimals: number | undefined
+    let tokenTotalSupply: bigint | undefined
     if (tokenAddress && tokenAddress !== '0x0000000000000000000000000000000000000000') {
       try {
-        const [nameResult, symbolResult] = await client.multicall({
+        const [nameResult, symbolResult, decimalsResult, supplyResult] = await client.multicall({
           contracts: [
             { address: tokenAddress, abi: ERC20_ABI as any, functionName: 'name' },
             { address: tokenAddress, abi: ERC20_ABI as any, functionName: 'symbol' },
+            { address: tokenAddress, abi: ERC20_ABI as any, functionName: 'decimals' },
+            { address: tokenAddress, abi: ERC20_ABI as any, functionName: 'totalSupply' },
           ],
         })
         tokenName = ok(nameResult) as string | undefined
         tokenSymbol = ok(symbolResult) as string | undefined
+        tokenDecimals = ok(decimalsResult) as number | undefined
+        tokenTotalSupply = ok(supplyResult) as bigint | undefined
+      } catch {}
+    }
+
+    // Read currency decimals for formatting totalRaised
+    let currencyDecimals = 18 // default ETH
+    let currencySymbol = 'ETH'
+    const currencyAddr = ok(currency) as string | undefined
+    if (currencyAddr && currencyAddr !== '0x0000000000000000000000000000000000000000') {
+      try {
+        const [cdResult, csResult] = await client.multicall({
+          contracts: [
+            { address: currencyAddr as `0x${string}`, abi: ERC20_ABI as any, functionName: 'decimals' },
+            { address: currencyAddr as `0x${string}`, abi: ERC20_ABI as any, functionName: 'symbol' },
+          ],
+        })
+        currencyDecimals = (ok(cdResult) as number) ?? 18
+        currencySymbol = (ok(csResult) as string) ?? currencyAddr
       } catch {}
     }
 
@@ -333,6 +358,23 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
       ? `${(Number(BigInt(ok(clearingPrice)) * 10000n / floorBig) / 100).toFixed(1)}%`
       : '?'
 
+    // Format currencyRaised as human-readable
+    const currencyRaisedRaw = ok(currencyRaisedResult) as bigint | undefined
+    const totalClearedRaw = ok(totalClearedResult) as bigint | undefined
+    const formatCurrencyAmount = (raw: bigint | undefined) => {
+      if (!raw) return undefined
+      const divisor = 10n ** BigInt(currencyDecimals)
+      const whole = raw / divisor
+      const frac = raw % divisor
+      const fracStr = frac.toString().padStart(currencyDecimals, '0').slice(0, 2)
+      return `${whole.toLocaleString('en-US')}.${fracStr} ${currencySymbol}`
+    }
+
+    // Token supply formatted
+    const tokenSupplyFormatted = (tokenTotalSupply && tokenDecimals !== undefined)
+      ? Number(tokenTotalSupply / (10n ** BigInt(tokenDecimals))).toLocaleString('en-US')
+      : undefined
+
     const result = {
       name: auction.name,
       chain: auction.chain,
@@ -340,6 +382,7 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
       tokenAddress,
       tokenName,
       tokenSymbol,
+      tokenSupply: tokenSupplyFormatted,
       startBlock: startBlockVal?.toString(),
       endBlock: endBlockVal?.toString(),
       floorPrice_Q96: ok(floorPrice)?.toString(),
@@ -348,14 +391,16 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
       tickSpacingAsPctOfFloor: `${tickPct}%`,
       durationBlocks,
       durationHours,
-      requiredRaise: ok(requiredRaise)?.toString(),
       hasValidationHook: ok(validationHook) != null && ok(validationHook) !== '0x0000000000000000000000000000000000000000',
       currency: ok(currency) as string | undefined,
+      currencySymbol,
       graduated: ok(graduated) as boolean | undefined,
       finalClearingPrice_Q96: ok(clearingPrice)?.toString(),
       clearingPrice: clearingDecimal,
       clearingVsFloor,
-      totalRaised: ok(totalRaised)?.toString(),
+      currencyRaised: currencyRaisedRaw?.toString(),
+      currencyRaisedFormatted: formatCurrencyAmount(currencyRaisedRaw),
+      totalCleared: totalClearedRaw?.toString(),
       flags: [] as string[],
     }
 
@@ -409,6 +454,207 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
   } catch (err) {
     console.error(`Error reading ${auction.name}:`, err)
     return null
+  }
+}
+
+// ─── Bid tracker for active auctions ────────────────────────────────────────
+interface TrackedAuction {
+  address: `0x${string}`
+  chain: string
+  token: string
+  tokenSymbol?: string
+  tokenName?: string
+  currencySymbol: string
+  currencyDecimals: number
+  startBlock: bigint
+  endBlock: bigint
+  lastScannedBlock: bigint
+  totalBids: number
+  uniqueBidders: Set<string>
+  currencyRaised: bigint
+  lastAlertBids: number  // bid count at last Telegram update
+  graduated: boolean
+}
+
+const trackedAuctions: TrackedAuction[] = []
+const BID_ALERT_INTERVAL = 50 // send update every N new bids
+const BID_POLL_INTERVAL = 60_000 // check bids every 60s
+
+async function initTrackedAuction(address: `0x${string}`, chain: string, tokenAddr: string): Promise<TrackedAuction | null> {
+  try {
+    const client = getClient(chain)
+    const [startBlock, endBlock, currencyResult, graduatedResult, tokenResult, raisedResult] = await client.multicall({
+      contracts: [
+        { address, abi: AUCTION_ABI as any, functionName: 'startBlock' },
+        { address, abi: AUCTION_ABI as any, functionName: 'endBlock' },
+        { address, abi: AUCTION_ABI as any, functionName: 'currency' },
+        { address, abi: AUCTION_ABI as any, functionName: 'isGraduated' },
+        { address, abi: AUCTION_ABI as any, functionName: 'token' },
+        { address, abi: AUCTION_ABI as any, functionName: 'currencyRaised' },
+      ],
+    })
+    const ok = (r: any) => r.status === 'success' ? r.result : undefined
+    const startBlockVal = ok(startBlock) as bigint | undefined
+    const endBlockVal = ok(endBlock) as bigint | undefined
+    if (!startBlockVal || !endBlockVal) return null
+
+    let currencyDecimals = 18
+    let currencySymbol = 'ETH'
+    const currAddr = ok(currencyResult) as string | undefined
+    if (currAddr && currAddr !== '0x0000000000000000000000000000000000000000') {
+      try {
+        const [cd, cs] = await client.multicall({
+          contracts: [
+            { address: currAddr as `0x${string}`, abi: ERC20_ABI as any, functionName: 'decimals' },
+            { address: currAddr as `0x${string}`, abi: ERC20_ABI as any, functionName: 'symbol' },
+          ],
+        })
+        currencyDecimals = (ok(cd) as number) ?? 18
+        currencySymbol = (ok(cs) as string) ?? 'TOKEN'
+      } catch {}
+    }
+
+    let tokenSymbol: string | undefined
+    let tokenName: string | undefined
+    const tAddr = (ok(tokenResult) || tokenAddr) as `0x${string}`
+    if (tAddr && tAddr !== '0x0000000000000000000000000000000000000000') {
+      try {
+        const [ns, nn] = await client.multicall({
+          contracts: [
+            { address: tAddr, abi: ERC20_ABI as any, functionName: 'symbol' },
+            { address: tAddr, abi: ERC20_ABI as any, functionName: 'name' },
+          ],
+        })
+        tokenSymbol = ok(ns) as string | undefined
+        tokenName = ok(nn) as string | undefined
+      } catch {}
+    }
+
+    return {
+      address,
+      chain,
+      token: tokenAddr,
+      tokenSymbol,
+      tokenName,
+      currencySymbol,
+      currencyDecimals,
+      startBlock: startBlockVal,
+      endBlock: endBlockVal,
+      lastScannedBlock: startBlockVal,
+      totalBids: 0,
+      uniqueBidders: new Set(),
+      currencyRaised: (ok(raisedResult) as bigint) ?? 0n,
+      lastAlertBids: 0,
+      graduated: (ok(graduatedResult) as boolean) ?? false,
+    }
+  } catch {
+    return null
+  }
+}
+
+function formatBidUpdate(auction: TrackedAuction): string {
+  const divisor = 10n ** BigInt(auction.currencyDecimals)
+  const whole = auction.currencyRaised / divisor
+  const frac = (auction.currencyRaised % divisor).toString().padStart(auction.currencyDecimals, '0').slice(0, 2)
+  const raised = `${whole.toLocaleString('en-US')}.${frac} ${auction.currencySymbol}`
+  const label = auction.tokenSymbol || auction.address.slice(0, 10)
+  const chainLabel = auction.chain.toUpperCase()
+  const blocksLeft = Number(auction.endBlock - auction.lastScannedBlock)
+  const secsLeft = blocksLeft * CHAINS[auction.chain].secsPerBlock
+  const hoursLeft = Math.max(0, Math.round(secsLeft / 3600))
+
+  const lines = [
+    `📊 <b>${label} Auction Update</b> (${chainLabel})`,
+    ``,
+    `<b>Total bids:</b> ${auction.totalBids}`,
+    `<b>Unique bidders:</b> ${auction.uniqueBidders.size}`,
+    `<b>Currency raised:</b> ${raised}`,
+    `<b>Time remaining:</b> ~${hoursLeft}h`,
+  ]
+  if (auction.graduated) lines.push(`<b>Status:</b> ✅ Graduated`)
+  lines.push(``, `<a href="https://app.uniswap.org/explore/auctions/${auction.chain === 'mainnet' ? 'ethereum' : auction.chain}/${auction.address}">View on Uniswap</a>`)
+  return lines.join('\n')
+}
+
+async function pollBids() {
+  for (const auction of trackedAuctions) {
+    try {
+      const client = getClient(auction.chain)
+      const currentBlock = await client.getBlockNumber()
+
+      // Check if auction has ended
+      if (currentBlock > auction.endBlock) {
+        // Final update
+        const [raisedResult, gradResult] = await client.multicall({
+          contracts: [
+            { address: auction.address, abi: AUCTION_ABI as any, functionName: 'currencyRaised' },
+            { address: auction.address, abi: AUCTION_ABI as any, functionName: 'isGraduated' },
+          ],
+        })
+        const ok = (r: any) => r.status === 'success' ? r.result : undefined
+        auction.currencyRaised = (ok(raisedResult) as bigint) ?? auction.currencyRaised
+        auction.graduated = (ok(gradResult) as boolean) ?? false
+
+        const status = auction.graduated ? '✅ GRADUATED' : '❌ DID NOT GRADUATE'
+        const divisor = 10n ** BigInt(auction.currencyDecimals)
+        const whole = auction.currencyRaised / divisor
+        const frac = (auction.currencyRaised % divisor).toString().padStart(auction.currencyDecimals, '0').slice(0, 2)
+        const raised = `${whole.toLocaleString('en-US')}.${frac} ${auction.currencySymbol}`
+
+        const label = auction.tokenSymbol || auction.address.slice(0, 10)
+        await sendTelegram([
+          `🏁 <b>${label} Auction ENDED</b>`,
+          ``,
+          `<b>Result:</b> ${status}`,
+          `<b>Final raised:</b> ${raised}`,
+          `<b>Total bids:</b> ${auction.totalBids}`,
+          `<b>Unique bidders:</b> ${auction.uniqueBidders.size}`,
+        ].join('\n'))
+        console.log(`  ${label} auction ended: ${status}`)
+
+        // Remove from tracking
+        const idx = trackedAuctions.indexOf(auction)
+        if (idx >= 0) trackedAuctions.splice(idx, 1)
+        continue
+      }
+
+      // Scan new bid events
+      const scanTo = currentBlock < auction.endBlock ? currentBlock : auction.endBlock
+      if (scanTo <= auction.lastScannedBlock) continue
+
+      const bidLogs = await client.getLogs({
+        address: auction.address,
+        event: parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint256 amount)'),
+        fromBlock: auction.lastScannedBlock + 1n,
+        toBlock: scanTo,
+      })
+
+      for (const log of bidLogs) {
+        const { owner } = log.args as any
+        auction.uniqueBidders.add(owner)
+        auction.totalBids++
+      }
+      auction.lastScannedBlock = scanTo
+
+      // Update raised amount
+      try {
+        const [raisedResult] = await client.multicall({
+          contracts: [{ address: auction.address, abi: AUCTION_ABI as any, functionName: 'currencyRaised' }],
+        })
+        const ok = (r: any) => r.status === 'success' ? r.result : undefined
+        auction.currencyRaised = (ok(raisedResult) as bigint) ?? auction.currencyRaised
+      } catch {}
+
+      // Send Telegram update every N new bids
+      const newBidsSinceAlert = auction.totalBids - auction.lastAlertBids
+      if (newBidsSinceAlert >= BID_ALERT_INTERVAL) {
+        await sendTelegram(formatBidUpdate(auction))
+        auction.lastAlertBids = auction.totalBids
+        console.log(`  Bid update sent for ${auction.tokenSymbol || auction.address}: ${auction.totalBids} bids, ${auction.uniqueBidders.size} bidders`)
+      }
+    } catch (err: any) {
+      // Silently retry next poll
+    }
   }
 }
 
@@ -493,6 +739,13 @@ async function watchForNewAuctions() {
           const alertText = formatTelegramAlert(detection, result)
           await sendTelegram(alertText)
           console.log('  Telegram alert sent')
+
+          // Start tracking bids on this new auction
+          const tracked = await initTrackedAuction(auction as `0x${string}`, name, token)
+          if (tracked) {
+            trackedAuctions.push(tracked)
+            console.log(`  Tracking bids for ${tracked.tokenSymbol || auction}`)
+          }
         }
 
         lastBlock[name] = currentBlock
@@ -503,10 +756,36 @@ async function watchForNewAuctions() {
   }
 
   const interval = setInterval(poll, 30_000)
+  const bidInterval = setInterval(pollBids, BID_POLL_INTERVAL)
+
+  // Auto-track any known active auctions on startup
+  for (const a of KNOWN_AUCTIONS.filter(a => !a.isTest && a.contractAddress !== '0x')) {
+    try {
+      const client = getClient(a.chain)
+      const currentBlock = await withTimeout(client.getBlockNumber(), 15_000)
+      const [endBlockResult] = await client.multicall({
+        contracts: [{ address: a.contractAddress, abi: AUCTION_ABI as any, functionName: 'endBlock' }],
+      })
+      const endBlock = endBlockResult.status === 'success' ? (endBlockResult.result as bigint) : 0n
+      if (endBlock > currentBlock) {
+        const tracked = await initTrackedAuction(a.contractAddress, a.chain, '')
+        if (tracked) {
+          trackedAuctions.push(tracked)
+          console.log(`  Tracking active auction: ${tracked.tokenSymbol || a.name}`)
+        }
+      }
+    } catch {}
+  }
+  if (trackedAuctions.length > 0) {
+    console.log(`\nTracking bids on ${trackedAuctions.length} active auction(s)`)
+  } else {
+    console.log('\nNo active auctions to track bids on currently')
+  }
 
   process.on('SIGINT', () => {
     console.log('\nShutting down...')
     clearInterval(interval)
+    clearInterval(bidInterval)
     process.exit(0)
   })
 
