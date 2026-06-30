@@ -160,6 +160,46 @@ async function sendWebhook(payload: Record<string, any>) {
   }
 }
 
+// ─── Telegram alerting ──────────────────────────────────────────────────────
+async function sendTelegram(text: string) {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  const chatId = process.env.TELEGRAM_CHAT_ID
+  if (!token || !chatId) return
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    })
+  } catch (err: any) {
+    console.error(`Telegram failed: ${err.message}`)
+  }
+}
+
+function formatTelegramAlert(detection: Record<string, any>, analysis?: Record<string, any> | null): string {
+  const lines = [
+    `🚨 <b>NEW CCA DETECTED</b>`,
+    ``,
+    `<b>Chain:</b> ${detection.chain.toUpperCase()}`,
+    `<b>Auction:</b> <code>${detection.auction}</code>`,
+    `<b>Token:</b> <code>${detection.token}</code>`,
+  ]
+  if (analysis) {
+    if (analysis.tokenSymbol) lines.push(`<b>Token ID:</b> ${analysis.tokenSymbol} (${analysis.tokenName})`)
+    if (analysis.currency) {
+      const cur = analysis.currency === '0x0000000000000000000000000000000000000000' ? 'ETH'
+        : analysis.currency === '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' ? 'USDC' : analysis.currency
+      lines.push(`<b>Currency:</b> ${cur}`)
+    }
+    if (analysis.durationHours) lines.push(`<b>Duration:</b> ${analysis.durationHours}h`)
+    if (analysis.floorPrice) lines.push(`<b>Floor price:</b> ${analysis.floorPrice}`)
+    lines.push(`<b>Validation hook:</b> ${analysis.hasValidationHook ? 'Yes' : 'No'}`)
+    if (analysis.flags?.length) lines.push(`<b>Flags:</b> ${analysis.flags.join(', ')}`)
+  }
+  lines.push(``, `<a href="${detection.uniswap}">View on Uniswap</a> | <a href="${detection.explorer}">Explorer</a>`)
+  return lines.join('\n')
+}
+
 // ─── Persistent data helpers ────────────────────────────────────────────────
 function appendDetection(detection: Record<string, any>) {
   fs.mkdirSync('data', { recursive: true })
@@ -378,6 +418,7 @@ async function watchForNewAuctions() {
   console.log('Watching factory on: Ethereum, Base, Arbitrum, Unichain')
   console.log('Factory address:', FACTORY_ADDRESS)
   if (process.env.WEBHOOK_URL) console.log('Webhook: enabled')
+  if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) console.log('Telegram: enabled')
   console.log('-'.repeat(60))
 
   const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain']
@@ -447,6 +488,11 @@ async function watchForNewAuctions() {
           const entry = { name: `NEW_${name.toUpperCase()}`, chain: name, contractAddress: auction as `0x${string}`, startBlock: 0n, notes: `Auto-detected ${timestamp}`, isTest: false }
           const result = await analyzeAuction(entry)
           if (result) appendResult(result)
+
+          // Send Telegram alert
+          const alertText = formatTelegramAlert(detection, result)
+          await sendTelegram(alertText)
+          console.log('  Telegram alert sent')
         }
 
         lastBlock[name] = currentBlock

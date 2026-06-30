@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-06-29T17:37:10.283Z",
+  "timestamp": "2026-06-29T21:09:05.219Z",
   "summary": {
-    "total": 3,
-    "real": 3,
+    "total": 4,
+    "real": 4,
     "tests": 0,
-    "graduated": 3,
+    "graduated": 4,
     "failed": 0,
-    "withHooks": 1
+    "withHooks": 2
   },
   "auctions": [
     {
@@ -83,6 +83,31 @@
       "clearingVsFloor": "2.2808349975908276e+28%",
       "flags": [
         "NO_HOOK: no validation hook"
+      ]
+    },
+    {
+      "name": "CAP",
+      "chain": "mainnet",
+      "isTest": false,
+      "tokenAddress": "0x9999B7E3cc6979223Ff1aF980b7D8B90B75d9999",
+      "tokenName": "Cap Redeemable Token",
+      "tokenSymbol": "rCAP",
+      "startBlock": "25273679",
+      "endBlock": "25338479",
+      "floorPrice_Q96": "594211218857000",
+      "floorPrice": "0.00000000",
+      "tickSpacing_Q96": "5942112188570",
+      "tickSpacingAsPctOfFloor": "1.0000%",
+      "durationBlocks": 64800,
+      "durationHours": 216,
+      "hasValidationHook": true,
+      "currency": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "graduated": true,
+      "finalClearingPrice_Q96": "843779930776940",
+      "clearingPrice": "0.00000000",
+      "clearingVsFloor": "142.0%",
+      "flags": [
+        "DURATION_LONG: auction over 7 days"
       ]
     }
   ]
