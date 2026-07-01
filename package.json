@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "analyze": "npx tsx cca-collector.ts analyze",
-    "watch": "npx tsx cca-collector.ts watch"
+    "watch": "npx tsx cca-collector.ts watch",
+    "dashboard": "npx serve . -l 3000"
   },
   "dependencies": {
     "viem": "^2.21.0",

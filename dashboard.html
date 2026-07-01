@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CCA Monitor</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --border: #1e293b;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding: 24px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+  .header h1 span { color: var(--accent); }
+  .header-meta { font-size: 13px; color: var(--muted); }
+
+  .stats-row {
+    display: flex; gap: 16px; padding: 24px 32px; flex-wrap: wrap;
+  }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px 20px; min-width: 160px; flex: 1;
+  }
+  .stat-card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .stat-card .value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.amber { color: var(--amber); }
+
+  .table-wrap { padding: 0 32px 32px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  thead th {
+    text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg);
+  }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 0.15s; }
+  tbody tr:hover { background: rgba(99,102,241,0.05); }
+  td { padding: 12px; white-space: nowrap; }
+  td.wrap { white-space: normal; max-width: 200px; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 9999px;
+    font-size: 11px; font-weight: 600;
+  }
+  .badge-green { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge-red { background: rgba(239,68,68,0.15); color: var(--red); }
+  .badge-chain { background: rgba(99,102,241,0.15); color: var(--accent); }
+  .badge-flag { background: rgba(245,158,11,0.12); color: var(--amber); margin: 2px 0; display: inline-block; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: var(--muted); }
+  .right { text-align: right; }
+
+  .cta-bar {
+    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08));
+    border: 1px solid rgba(99,102,241,0.25); border-radius: 8px;
+    padding: 16px 24px; margin: 0 32px 24px; display: flex;
+    align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  }
+  .cta-bar .cta-text { font-size: 14px; }
+  .cta-bar .cta-text strong { color: #a5b4fc; }
+  .cta-btn {
+    background: var(--accent); color: white; border: none; padding: 8px 20px;
+    border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+  .cta-btn:hover { background: #4f46e5; text-decoration: none; }
+
+  .empty-state { text-align: center; padding: 80px 32px; color: var(--muted); }
+  .empty-state h2 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
+
+  @media (max-width: 768px) {
+    .header, .stats-row, .table-wrap, .cta-bar { padding-left: 16px; padding-right: 16px; }
+    .stats-row { gap: 8px; }
+    .stat-card { min-width: 120px; padding: 12px; }
+    .stat-card .value { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>CCA</span> Monitor</h1>
+  <div class="header-meta" id="meta">Loading...</div>
+</div>
+
+<div class="stats-row" id="stats"></div>
+
+<div class="cta-bar">
+  <div class="cta-text">Get <strong>instant alerts</strong> when new auctions deploy, with bid tracking and analysis.</div>
+  <a href="https://t.me/cca_auctions" class="cta-btn" target="_blank">Join Telegram Channel</a>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Token</th>
+        <th>Chain</th>
+        <th>Status</th>
+        <th>Currency</th>
+        <th class="right">Raised</th>
+        <th class="right">Duration</th>
+        <th class="right">Floor Price</th>
+        <th class="right">Clearing Price</th>
+        <th class="right">Clear/Floor</th>
+        <th>Supply</th>
+        <th>Hook</th>
+        <th class="wrap">Flags</th>
+        <th>Links</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div class="empty-state" id="empty" style="display:none">
+    <h2>No auctions found</h2>
+    <p>Run <code>npm run analyze</code> to pull auction data.</p>
+  </div>
+</div>
+
+<script>
+async function load() {
+  try {
+    const resp = await fetch('data/results.json');
+    const data = await resp.json();
+    render(data);
+  } catch {
+    document.getElementById('empty').style.display = 'block';
+  }
+}
+
+function render(data) {
+  // Meta
+  const date = new Date(data.timestamp);
+  document.getElementById('meta').textContent = `Last updated: ${date.toLocaleString()} | ${data.summary.total} auctions`;
+
+  // Stats
+  const s = data.summary;
+  const statsHtml = [
+    { label: 'Total Auctions', value: s.total, cls: '' },
+    { label: 'Graduated', value: s.graduated, cls: 'green' },
+    { label: 'Failed', value: s.failed, cls: s.failed > 0 ? 'amber' : '' },
+    { label: 'With KYC Hook', value: s.withHooks, cls: '' },
+  ].map(s => `
+    <div class="stat-card">
+      <div class="label">${s.label}</div>
+      <div class="value ${s.cls}">${s.value}</div>
+    </div>
+  `).join('');
+  document.getElementById('stats').innerHTML = statsHtml;
+
+  // Table
+  const auctions = data.auctions.filter(a => !a.isTest);
+  if (auctions.length === 0) {
+    document.getElementById('empty').style.display = 'block';
+    return;
+  }
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = auctions.map(a => {
+    const chainSlug = a.chain === 'mainnet' ? 'ethereum' : a.chain;
+    const explorerBase = {
+      mainnet: 'https://etherscan.io',
+      base: 'https://basescan.org',
+      arbitrum: 'https://arbiscan.io',
+      unichain: 'https://uniscan.xyz',
+    }[a.chain] || '';
+    const uniswapUrl = `https://app.uniswap.org/explore/auctions/${chainSlug}/${a.tokenAddress}`;
+    const explorerUrl = `${explorerBase}/address/${a.tokenAddress}`;
+
+    const statusBadge = a.graduated
+      ? '<span class="badge badge-green">Graduated</span>'
+      : '<span class="badge badge-red">Failed</span>';
+
+    const hookBadge = a.hasValidationHook
+      ? '<span class="badge badge-green">Yes</span>'
+      : '<span class="badge badge-red">No</span>';
+
+    const durationDays = (a.durationHours / 24).toFixed(1);
+
+    const flags = (a.flags || []).map(f => {
+      const short = f.split(':')[0];
+      return `<span class="badge badge-flag">${short}</span>`;
+    }).join(' ');
+
+    return `<tr>
+      <td><strong>${a.tokenSymbol || a.name}</strong><br><span class="mono">${a.tokenName || ''}</span></td>
+      <td><span class="badge badge-chain">${a.chain}</span></td>
+      <td>${statusBadge}</td>
+      <td>${a.currencySymbol || '?'}</td>
+      <td class="right">${a.currencyRaisedFormatted || '—'}</td>
+      <td class="right">${durationDays}d<br><span class="mono">${a.durationHours}h</span></td>
+      <td class="right mono">${a.floorPrice || '—'}</td>
+      <td class="right mono">${a.clearingPrice || '—'}</td>
+      <td class="right"><strong>${a.clearingVsFloor || '—'}</strong></td>
+      <td class="mono">${a.tokenSupply || '—'}</td>
+      <td>${hookBadge}</td>
+      <td class="wrap">${flags || '—'}</td>
+      <td><a href="${uniswapUrl}" target="_blank">Uniswap</a> | <a href="${explorerUrl}" target="_blank">Explorer</a></td>
+    </tr>`;
+  }).join('');
+}
+
+load();
+</script>
+</body>
+</html>
