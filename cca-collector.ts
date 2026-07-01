@@ -162,10 +162,16 @@ async function sendWebhook(payload: Record<string, any>) {
 }
 
 // ─── Telegram alerting ──────────────────────────────────────────────────────
-async function sendTelegram(text: string) {
+const TELEGRAM_TARGETS = {
+  dm: process.env.TELEGRAM_CHAT_ID,                    // your personal DM
+  premium: process.env.TELEGRAM_PREMIUM_CHANNEL_ID,    // paid subscribers (instant)
+  public: process.env.TELEGRAM_PUBLIC_CHANNEL_ID,       // free followers (delayed)
+}
+const PUBLIC_DELAY_MS = 30 * 60 * 1000 // 30-minute delay for public channel
+
+async function sendTelegramTo(chatId: string, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN
-  const chatId = process.env.TELEGRAM_CHAT_ID
-  if (!token || !chatId) return
+  if (!token) return
   try {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
@@ -173,7 +179,20 @@ async function sendTelegram(text: string) {
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
     })
   } catch (err: any) {
-    console.error(`Telegram failed: ${err.message}`)
+    console.error(`Telegram failed (${chatId}): ${err.message}`)
+  }
+}
+
+async function sendTelegram(text: string) {
+  // Instant: DM + premium channel
+  const targets = [TELEGRAM_TARGETS.dm, TELEGRAM_TARGETS.premium].filter(Boolean) as string[]
+  await Promise.all(targets.map(id => sendTelegramTo(id, text)))
+
+  // Delayed: public channel (with promo footer)
+  const publicId = TELEGRAM_TARGETS.public
+  if (publicId) {
+    const publicText = text + `\n\n⏱ <i>This alert was delayed 30 min. Get instant alerts:</i> <b>@cca_monitor_bot</b>`
+    setTimeout(() => sendTelegramTo(publicId, publicText), PUBLIC_DELAY_MS)
   }
 }
 
@@ -664,7 +683,13 @@ async function watchForNewAuctions() {
   console.log('Watching factory on: Ethereum, Base, Arbitrum, Unichain')
   console.log('Factory address:', FACTORY_ADDRESS)
   if (process.env.WEBHOOK_URL) console.log('Webhook: enabled')
-  if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) console.log('Telegram: enabled')
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    const channels = []
+    if (TELEGRAM_TARGETS.dm) channels.push('DM')
+    if (TELEGRAM_TARGETS.premium) channels.push('Premium')
+    if (TELEGRAM_TARGETS.public) channels.push('Public (30m delay)')
+    console.log(`Telegram: ${channels.join(' + ')}`)
+  }
   console.log('-'.repeat(60))
 
   const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain']
