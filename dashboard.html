@@ -137,8 +137,19 @@
 <script>
 async function load() {
   try {
-    const resp = await fetch('data/results.json');
-    const data = await resp.json();
+    // Try local first (dev), then GitHub Pages path, then raw GitHub
+    const urls = [
+      'data/results.json',
+      'https://raw.githubusercontent.com/monkrus/cca-monitor/master/data/results.json',
+    ];
+    let data;
+    for (const url of urls) {
+      try {
+        const resp = await fetch(url);
+        if (resp.ok) { data = await resp.json(); break; }
+      } catch {}
+    }
+    if (!data) throw new Error('No data');
     render(data);
   } catch {
     document.getElementById('empty').style.display = 'block';
