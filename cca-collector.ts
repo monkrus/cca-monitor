@@ -476,6 +476,206 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
   }
 }
 
+// ─── Graduated token price tracker ──────────────────────────────────────────
+interface TrackedToken {
+  address: string
+  symbol: string
+  name: string
+  chain: string
+  auctionName: string
+  clearingPrice?: string
+  lastPrice?: string
+  lastPriceUsd?: string
+  priceChange24h?: string
+  volume24h?: string
+  poolAddress?: string
+  lastChecked?: string
+}
+
+const trackedTokens: TrackedToken[] = []
+const PRICE_CHECK_INTERVAL = 10 * 60 * 1000 // check prices every 10 min
+const PRICE_CHANGE_ALERT_THRESHOLD = 10 // alert on >10% moves
+
+function loadTrackedTokens(): TrackedToken[] {
+  try {
+    const file = 'data/tracked-tokens.json'
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf-8'))
+  } catch {}
+  return []
+}
+
+function saveTrackedTokens() {
+  fs.mkdirSync('data', { recursive: true })
+  fs.writeFileSync('data/tracked-tokens.json', JSON.stringify(trackedTokens, null, 2))
+}
+
+async function fetchTokenPrice(address: string, chain: string): Promise<{ priceUsd: string, change24h: string, volume24h: string, poolAddress: string } | null> {
+  const chainMap: Record<string, string> = { mainnet: 'ethereum', base: 'base', arbitrum: 'arbitrum' }
+  const dexChain = chainMap[chain] || chain
+  try {
+    const resp = await fetch(`https://api.dexscreener.com/tokens/v1/${dexChain}/${address}`)
+    const data = await resp.json() as any[]
+    if (!data?.length) return null
+    const pair = data[0]
+    return {
+      priceUsd: pair.priceUsd || '0',
+      change24h: pair.priceChange?.h24?.toString() || '0',
+      volume24h: pair.volume?.h24?.toString() || '0',
+      poolAddress: pair.pairAddress || '',
+    }
+  } catch { return null }
+}
+
+async function pollPrices() {
+  for (const token of trackedTokens) {
+    const price = await fetchTokenPrice(token.address, token.chain)
+    if (!price) continue
+
+    const prevPrice = token.lastPriceUsd
+    token.lastPriceUsd = price.priceUsd
+    token.priceChange24h = price.change24h
+    token.volume24h = price.volume24h
+    token.poolAddress = price.poolAddress
+    token.lastChecked = new Date().toISOString()
+
+    // Alert on big price moves
+    if (prevPrice && Math.abs(parseFloat(price.change24h)) >= PRICE_CHANGE_ALERT_THRESHOLD) {
+      const direction = parseFloat(price.change24h) > 0 ? '📈' : '📉'
+      await sendTelegram([
+        `${direction} <b>${token.symbol} Price Alert</b>`,
+        ``,
+        `<b>Price:</b> $${parseFloat(price.priceUsd).toFixed(6)}`,
+        `<b>24h change:</b> ${price.change24h}%`,
+        `<b>24h volume:</b> $${parseFloat(price.volume24h).toLocaleString('en-US')}`,
+        ``,
+        `<i>CCA auction: ${token.auctionName}</i>`,
+      ].join('\n'))
+    }
+  }
+  saveTrackedTokens()
+}
+
+async function initTokenTracking() {
+  // Load saved tokens
+  const saved = loadTrackedTokens()
+
+  // Build from known graduated auctions
+  const resultsFile = 'data/results.json'
+  if (!fs.existsSync(resultsFile)) return
+
+  const results = JSON.parse(fs.readFileSync(resultsFile, 'utf-8'))
+  for (const auction of results.auctions || []) {
+    if (!auction.graduated || auction.isTest || !auction.tokenAddress) continue
+
+    // Check if already tracked
+    if (saved.find(t => t.address.toLowerCase() === auction.tokenAddress.toLowerCase())) continue
+    if (trackedTokens.find(t => t.address.toLowerCase() === auction.tokenAddress.toLowerCase())) continue
+
+    // Check if token has a DEX pool
+    const price = await fetchTokenPrice(auction.tokenAddress, auction.chain)
+    if (price) {
+      const token: TrackedToken = {
+        address: auction.tokenAddress,
+        symbol: auction.tokenSymbol || auction.name,
+        name: auction.tokenName || auction.name,
+        chain: auction.chain,
+        auctionName: auction.name,
+        clearingPrice: auction.clearingPrice,
+        lastPriceUsd: price.priceUsd,
+        priceChange24h: price.change24h,
+        volume24h: price.volume24h,
+        poolAddress: price.poolAddress,
+        lastChecked: new Date().toISOString(),
+      }
+      trackedTokens.push(token)
+      console.log(`  Tracking price: ${token.symbol} ($${price.priceUsd})`)
+    }
+  }
+
+  // Merge saved tokens that aren't already in the list
+  for (const s of saved) {
+    if (!trackedTokens.find(t => t.address.toLowerCase() === s.address.toLowerCase())) {
+      trackedTokens.push(s)
+    }
+  }
+
+  saveTrackedTokens()
+}
+
+// ─── Daily market summary ───────────────────────────────────────────────────
+let lastDailySummary = ''
+
+async function sendDailySummary() {
+  const now = new Date()
+  const dateKey = now.toISOString().slice(0, 10) // YYYY-MM-DD
+  if (dateKey === lastDailySummary) return
+
+  // Send at 9:00 UTC
+  if (now.getUTCHours() !== 9) return
+  lastDailySummary = dateKey
+
+  const lines = [
+    `📋 <b>CCA Daily Summary</b> — ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`,
+    ``,
+  ]
+
+  // Active auctions section
+  if (trackedAuctions.length > 0) {
+    lines.push(`<b>🔴 Active Auctions:</b>`)
+    for (const a of trackedAuctions) {
+      const divisor = 10n ** BigInt(a.currencyDecimals)
+      const whole = a.currencyRaised / divisor
+      const frac = (a.currencyRaised % divisor).toString().padStart(a.currencyDecimals, '0').slice(0, 2)
+      const raised = `${whole.toLocaleString('en-US')}.${frac} ${a.currencySymbol}`
+      const blocksLeft = Number(a.endBlock - a.lastScannedBlock)
+      const hoursLeft = Math.max(0, Math.round(blocksLeft * CHAINS[a.chain].secsPerBlock / 3600))
+      lines.push(`  • <b>${a.tokenSymbol || a.address.slice(0,10)}</b> (${a.chain}): ${a.totalBids} bids, ${raised} raised, ~${hoursLeft}h left`)
+    }
+    lines.push(``)
+  } else {
+    lines.push(`<b>No active auctions</b> — monitoring 4 chains for new deployments.`)
+    lines.push(``)
+  }
+
+  // Graduated token prices
+  if (trackedTokens.length > 0) {
+    lines.push(`<b>📊 Graduated Token Prices:</b>`)
+    for (const t of trackedTokens) {
+      if (!t.lastPriceUsd || t.lastPriceUsd === '0') continue
+      const change = parseFloat(t.priceChange24h || '0')
+      const arrow = change > 0 ? '🟢' : change < 0 ? '🔴' : '⚪'
+      const vol = parseFloat(t.volume24h || '0')
+      lines.push(`  ${arrow} <b>${t.symbol}</b>: $${parseFloat(t.lastPriceUsd).toFixed(6)} (${change > 0 ? '+' : ''}${change.toFixed(1)}%) | Vol: $${vol.toLocaleString('en-US')}`)
+    }
+    lines.push(``)
+  }
+
+  // Stats
+  const resultsFile = 'data/results.json'
+  if (fs.existsSync(resultsFile)) {
+    try {
+      const results = JSON.parse(fs.readFileSync(resultsFile, 'utf-8'))
+      const total = results.auctions?.length || 0
+      const graduated = results.auctions?.filter((a: any) => a.graduated).length || 0
+      lines.push(`<b>📈 All-time:</b> ${total} auctions tracked, ${graduated} graduated`)
+    } catch {}
+  }
+
+  lines.push(``, `<i>Get instant alerts: @cca_monitor_bot → /subscribe</i>`)
+
+  await sendTelegram(lines.join('\n'))
+  console.log(`Daily summary sent (${dateKey})`)
+}
+
+// ─── Whale bid alert helper ─────────────────────────────────────────────────
+const WHALE_THRESHOLD_ETH = 10n * 10n ** 18n       // 10 ETH
+const WHALE_THRESHOLD_USDC = 25000n * 10n ** 6n     // 25,000 USDC
+
+function isWhaleBid(amount: bigint, currencySymbol: string): boolean {
+  if (currencySymbol === 'USDC' || currencySymbol === 'USDT') return amount >= WHALE_THRESHOLD_USDC
+  return amount >= WHALE_THRESHOLD_ETH
+}
+
 // ─── Bid tracker for active auctions ────────────────────────────────────────
 interface TrackedAuction {
   address: `0x${string}`
@@ -649,9 +849,27 @@ async function pollBids() {
       })
 
       for (const log of bidLogs) {
-        const { owner } = log.args as any
+        const { owner, amount } = log.args as any
         auction.uniqueBidders.add(owner)
         auction.totalBids++
+
+        // Whale bid alert
+        if (amount && isWhaleBid(BigInt(amount), auction.currencySymbol)) {
+          const divisor = 10n ** BigInt(auction.currencyDecimals)
+          const whole = BigInt(amount) / divisor
+          const frac = (BigInt(amount) % divisor).toString().padStart(auction.currencyDecimals, '0').slice(0, 2)
+          const amtStr = `${whole.toLocaleString('en-US')}.${frac} ${auction.currencySymbol}`
+          const label = auction.tokenSymbol || auction.address.slice(0, 10)
+          await sendTelegram([
+            `🐋 <b>Whale Bid — ${label}</b>`,
+            ``,
+            `<b>Amount:</b> ${amtStr}`,
+            `<b>Bidder:</b> <code>${owner}</code>`,
+            `<b>Total bids:</b> ${auction.totalBids}`,
+            `<b>Bidders:</b> ${auction.uniqueBidders.size}`,
+          ].join('\n'))
+          console.log(`  Whale bid: ${amtStr} from ${owner}`)
+        }
       }
       auction.lastScannedBlock = scanTo
 
@@ -782,6 +1000,17 @@ async function watchForNewAuctions() {
 
   const interval = setInterval(poll, 30_000)
   const bidInterval = setInterval(pollBids, BID_POLL_INTERVAL)
+  const priceInterval = setInterval(pollPrices, PRICE_CHECK_INTERVAL)
+  const dailyInterval = setInterval(sendDailySummary, 60_000) // check every minute if it's 9 UTC
+
+  // Init graduated token price tracking
+  console.log('\nInitializing token price tracking...')
+  await initTokenTracking()
+  if (trackedTokens.length > 0) {
+    console.log(`Tracking prices for ${trackedTokens.length} graduated token(s)`)
+  } else {
+    console.log('No graduated tokens with active DEX pools found')
+  }
 
   // Auto-track any known active auctions on startup
   for (const a of KNOWN_AUCTIONS.filter(a => !a.isTest && a.contractAddress !== '0x')) {
@@ -811,6 +1040,8 @@ async function watchForNewAuctions() {
     console.log('\nShutting down...')
     clearInterval(interval)
     clearInterval(bidInterval)
+    clearInterval(priceInterval)
+    clearInterval(dailyInterval)
     process.exit(0)
   })
 

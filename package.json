@@ -6,7 +6,8 @@
   "scripts": {
     "analyze": "npx tsx cca-collector.ts analyze",
     "watch": "npx tsx cca-collector.ts watch",
-    "dashboard": "npx serve . -l 3000"
+    "dashboard": "npx serve . -l 3000",
+    "bot": "npx tsx bot-server.ts"
   },
   "dependencies": {
     "viem": "^2.21.0",
