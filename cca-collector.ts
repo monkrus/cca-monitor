@@ -811,6 +811,36 @@ async function sendHeartbeat() {
     }
   }
 
+  // Subscriber counts by tier
+  let subLines: string[] = []
+  try {
+    const subs = JSON.parse(fs.readFileSync('data/subscribers.json', 'utf-8')) as Array<{ tier?: string; expiresAt: string }>
+    const now = new Date()
+    const active = subs.filter(s => s.tier === 'lifetime' || new Date(s.expiresAt) >= now)
+    const byTier: Record<string, number> = {}
+    for (const s of active) byTier[s.tier || 'legacy'] = (byTier[s.tier || 'legacy'] || 0) + 1
+    const parts = Object.entries(byTier).map(([t, n]) => `${t}: ${n}`)
+    subLines = [`<b>Subscribers:</b> ${active.length} (${parts.join(', ')})`]
+  } catch {
+    subLines = [`<b>Subscribers:</b> 0`]
+  }
+
+  // Public channel member count
+  let publicMembers = ''
+  const publicId = TELEGRAM_TARGETS.public
+  const botToken = process.env.TELEGRAM_BOT_TOKEN
+  if (publicId && botToken) {
+    try {
+      const resp = await fetch(`https://api.telegram.org/bot${botToken}/getChatMemberCount`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: publicId }),
+      })
+      const data = await resp.json() as any
+      if (data.ok) publicMembers = ` | Public channel: ${data.result}`
+    } catch {}
+  }
+
   const header = hasWarning ? '⚠️ <b>WATCHDOG HEARTBEAT</b>' : '💚 <b>WATCHDOG HEARTBEAT</b>'
   const msg = [
     header,
@@ -820,7 +850,9 @@ async function sendHeartbeat() {
     ``,
     `<b>Active auctions:</b> ${trackedAuctions.length}`,
     `<b>Total in dataset:</b> ${totalAuctions}`,
-  ].join('\n')
+    ...subLines,
+    publicMembers ? `<b>Public channel members:</b> ${publicMembers.split(': ')[1]}` : '',
+  ].filter(Boolean).join('\n')
 
   await sendTelegramTo(dmId, msg)
   console.log(`Heartbeat sent (${dateKey})`)
@@ -844,6 +876,7 @@ interface TrackedAuction {
   tokenName?: string
   currencySymbol: string
   currencyDecimals: number
+  tokenDecimals: number
   startBlock: bigint
   endBlock: bigint
   lastScannedBlock: bigint
@@ -852,6 +885,8 @@ interface TrackedAuction {
   currencyRaised: bigint
   lastAlertBids: number  // bid count at last Telegram update
   graduated: boolean
+  floorPriceQ96: bigint
+  clearingPriceQ96: bigint
 }
 
 const trackedAuctions: TrackedAuction[] = []
@@ -861,7 +896,7 @@ const BID_POLL_INTERVAL = 60_000 // check bids every 60s
 async function initTrackedAuction(address: `0x${string}`, chain: string, tokenAddr: string): Promise<TrackedAuction | null> {
   try {
     const client = getClient(chain)
-    const [startBlock, endBlock, currencyResult, graduatedResult, tokenResult, raisedResult] = await client.multicall({
+    const [startBlock, endBlock, currencyResult, graduatedResult, tokenResult, raisedResult, floorResult, clearingResult] = await client.multicall({
       contracts: [
         { address, abi: AUCTION_ABI as any, functionName: 'startBlock' },
         { address, abi: AUCTION_ABI as any, functionName: 'endBlock' },
@@ -869,6 +904,8 @@ async function initTrackedAuction(address: `0x${string}`, chain: string, tokenAd
         { address, abi: AUCTION_ABI as any, functionName: 'isGraduated' },
         { address, abi: AUCTION_ABI as any, functionName: 'token' },
         { address, abi: AUCTION_ABI as any, functionName: 'currencyRaised' },
+        { address, abi: AUCTION_ABI as any, functionName: 'floorPrice' },
+        { address, abi: AUCTION_ABI as any, functionName: 'clearingPrice' },
       ],
     })
     const ok = (r: any) => r.status === 'success' ? r.result : undefined
@@ -894,17 +931,20 @@ async function initTrackedAuction(address: `0x${string}`, chain: string, tokenAd
 
     let tokenSymbol: string | undefined
     let tokenName: string | undefined
+    let tokenDecimals = 18
     const tAddr = (ok(tokenResult) || tokenAddr) as `0x${string}`
     if (tAddr && tAddr !== '0x0000000000000000000000000000000000000000') {
       try {
-        const [ns, nn] = await client.multicall({
+        const [ns, nn, nd] = await client.multicall({
           contracts: [
             { address: tAddr, abi: ERC20_ABI as any, functionName: 'symbol' },
             { address: tAddr, abi: ERC20_ABI as any, functionName: 'name' },
+            { address: tAddr, abi: ERC20_ABI as any, functionName: 'decimals' },
           ],
         })
         tokenSymbol = ok(ns) as string | undefined
         tokenName = ok(nn) as string | undefined
+        tokenDecimals = (ok(nd) as number) ?? 18
       } catch {}
     }
 
@@ -916,6 +956,7 @@ async function initTrackedAuction(address: `0x${string}`, chain: string, tokenAd
       tokenName,
       currencySymbol,
       currencyDecimals,
+      tokenDecimals,
       startBlock: startBlockVal,
       endBlock: endBlockVal,
       lastScannedBlock: startBlockVal,
@@ -924,6 +965,8 @@ async function initTrackedAuction(address: `0x${string}`, chain: string, tokenAd
       currencyRaised: (ok(raisedResult) as bigint) ?? 0n,
       lastAlertBids: 0,
       graduated: (ok(graduatedResult) as boolean) ?? false,
+      floorPriceQ96: (ok(floorResult) as bigint) ?? 0n,
+      clearingPriceQ96: (ok(clearingResult) as bigint) ?? 0n,
     }
   } catch {
     return null
@@ -952,6 +995,125 @@ function formatBidUpdate(auction: TrackedAuction): string {
   if (auction.graduated) lines.push(`<b>Status:</b> ✅ Graduated`)
   lines.push(``, `<a href="https://app.uniswap.org/explore/auctions/${auction.chain === 'mainnet' ? 'ethereum' : auction.chain}/${auction.address}">View on Uniswap</a>`)
   return lines.join('\n')
+}
+
+// ─── Auction-end intel alerts ────────────────────────────────────────────────
+const END_ALERTS_FILE = 'data/end-alerts-sent.json'
+const END_ALERT_PUBLIC_DELAY_MS = 6 * 60 * 60 * 1000 // 6-hour delay for public teaser
+
+interface EndAlertsSent {
+  [auctionAddress: string]: { h24?: boolean; h1?: boolean }
+}
+
+function loadEndAlerts(): EndAlertsSent {
+  try {
+    if (fs.existsSync(END_ALERTS_FILE)) return JSON.parse(fs.readFileSync(END_ALERTS_FILE, 'utf-8'))
+  } catch {}
+  return {}
+}
+
+function saveEndAlerts(data: EndAlertsSent) {
+  fs.mkdirSync('data', { recursive: true })
+  fs.writeFileSync(END_ALERTS_FILE, JSON.stringify(data, null, 2))
+}
+
+function buildEndIntel(auction: TrackedAuction, hoursLeft: number, includeRatio: boolean): string {
+  const label = auction.tokenSymbol || auction.address.slice(0, 10)
+  const chainLabel = auction.chain.toUpperCase()
+
+  // Currency raised
+  const divisor = 10n ** BigInt(auction.currencyDecimals)
+  const whole = auction.currencyRaised / divisor
+  const frac = (auction.currencyRaised % divisor).toString().padStart(auction.currencyDecimals, '0').slice(0, 2)
+  const raised = `${whole.toLocaleString('en-US')}.${frac} ${auction.currencySymbol}`
+
+  // Clearing vs floor
+  const cvf = auction.floorPriceQ96 > 0n && auction.clearingPriceQ96 > 0n
+    ? `${(Number(auction.clearingPriceQ96 * 10000n / auction.floorPriceQ96) / 100).toFixed(1)}%`
+    : '?'
+
+  const emoji = hoursLeft <= 1 ? '🔴' : '🟡'
+  const timeStr = hoursLeft <= 1 ? '< 1 hour' : `~${hoursLeft}h`
+
+  const lines = [
+    `${emoji} <b>${label} Auction Closing</b> (${chainLabel})`,
+    ``,
+    `<b>Time remaining:</b> ${timeStr}`,
+    `<b>Total bids:</b> ${auction.totalBids.toLocaleString()}`,
+    `<b>Unique bidders:</b> ${auction.uniqueBidders.size.toLocaleString()}`,
+    `<b>Currency raised:</b> ${raised}`,
+  ]
+
+  if (includeRatio) {
+    lines.push(`<b>Clearing vs floor:</b> ${cvf}`)
+  }
+
+  lines.push(``, `<a href="https://app.uniswap.org/explore/auctions/${auction.chain === 'mainnet' ? 'ethereum' : auction.chain}/${auction.address}">View on Uniswap</a>`)
+  return lines.join('\n')
+}
+
+async function checkEndAlerts() {
+  const sent = loadEndAlerts()
+  let changed = false
+
+  for (const auction of trackedAuctions) {
+    const key = auction.address.toLowerCase()
+    if (!sent[key]) sent[key] = {}
+
+    const blocksLeft = Number(auction.endBlock - auction.lastScannedBlock)
+    const secsLeft = blocksLeft * CHAINS[auction.chain].secsPerBlock
+    const hoursLeft = secsLeft / 3600
+
+    // Refresh clearing price for intel
+    try {
+      const client = getClient(auction.chain)
+      const [cpResult, raisedResult] = await client.multicall({
+        contracts: [
+          { address: auction.address, abi: AUCTION_ABI as any, functionName: 'clearingPrice' },
+          { address: auction.address, abi: AUCTION_ABI as any, functionName: 'currencyRaised' },
+        ],
+      })
+      const ok = (r: any) => r.status === 'success' ? r.result : undefined
+      auction.clearingPriceQ96 = (ok(cpResult) as bigint) ?? auction.clearingPriceQ96
+      auction.currencyRaised = (ok(raisedResult) as bigint) ?? auction.currencyRaised
+    } catch {}
+
+    // 24h alert
+    if (hoursLeft <= 24 && hoursLeft > 1 && !sent[key].h24) {
+      const premiumText = buildEndIntel(auction, Math.round(hoursLeft), true)
+      // Premium + DM: instant with full intel
+      const targets = [TELEGRAM_TARGETS.dm, TELEGRAM_TARGETS.premium].filter(Boolean) as string[]
+      await Promise.all(targets.map(id => sendTelegramTo(id, premiumText)))
+
+      // Public: teaser without ratio, delayed 6h
+      const publicId = TELEGRAM_TARGETS.public
+      if (publicId) {
+        const teaser = buildEndIntel(auction, Math.round(hoursLeft), false)
+          + `\n\n⏱ <i>Delayed 6h. Get clearing ratio + instant alerts:</i> <b>@cca_monitor_bot</b>`
+        const alerts = loadPendingAlerts()
+        alerts.push({ sendAt: new Date(Date.now() + END_ALERT_PUBLIC_DELAY_MS).toISOString(), text: teaser })
+        savePendingAlerts(alerts)
+      }
+
+      sent[key].h24 = true
+      changed = true
+      console.log(`  End intel (24h) sent for ${auction.tokenSymbol || key}`)
+    }
+
+    // 1h alert
+    if (hoursLeft <= 1 && hoursLeft > 0 && !sent[key].h1) {
+      const premiumText = buildEndIntel(auction, 1, true)
+      const targets = [TELEGRAM_TARGETS.dm, TELEGRAM_TARGETS.premium].filter(Boolean) as string[]
+      await Promise.all(targets.map(id => sendTelegramTo(id, premiumText)))
+      // No public teaser for 1h — premium only
+
+      sent[key].h1 = true
+      changed = true
+      console.log(`  End intel (1h) sent for ${auction.tokenSymbol || key}`)
+    }
+  }
+
+  if (changed) saveEndAlerts(sent)
 }
 
 async function pollBids() {
@@ -1164,6 +1326,7 @@ async function watchForNewAuctions() {
   const interval = setInterval(poll, 30_000)
   const bidInterval = setInterval(pollBids, BID_POLL_INTERVAL)
   const priceInterval = setInterval(pollPrices, PRICE_CHECK_INTERVAL)
+  const endIntelInterval = setInterval(checkEndAlerts, 5 * 60_000) // check every 5 min
   const alertFlushInterval = setInterval(flushPendingAlerts, 60_000)
   const dailyInterval = setInterval(async () => { await sendDailySummary(); await sendHeartbeat(); }, 60_000)
 
@@ -1205,6 +1368,7 @@ async function watchForNewAuctions() {
     clearInterval(interval)
     clearInterval(bidInterval)
     clearInterval(priceInterval)
+    clearInterval(endIntelInterval)
     clearInterval(alertFlushInterval)
     clearInterval(dailyInterval)
     process.exit(0)
