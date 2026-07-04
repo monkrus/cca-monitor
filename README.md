@@ -52,10 +52,10 @@ Set `WEBHOOK_URL` in `.env` to receive JSON POST notifications when new auctions
 
 | Name | Chain | Status | Notes |
 |------|-------|--------|-------|
-| AZTEC | Mainnet | Graduated | $59M raised, 17K bidders, ZK Passport hook |
-| STRATO | Mainnet | Graduated | 1,016 ETH raised, 577 bids, HardFi/gold |
+| AZTEC | Mainnet | Graduated | $59M raised, 17,232 bids / 14,096 bidders, ZK Passport hook |
+| STRATO | Mainnet | Graduated | 1,016 ETH raised, ~577 bids, HardFi/gold |
 | wOCT | Mainnet | Graduated | Wrapped OCT token |
-| CAP | Base | Address TBD | $16.4M USDC, 5.5x oversubscribed |
+| CAP | Mainnet | Graduated | $16.4M USDC, 5.5x oversubscribed |
 | 11 test auctions | Base | Failed | Dec 2025 - May 2026 test deployments |
 
 ## What This Data Enables

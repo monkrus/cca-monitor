@@ -42,6 +42,16 @@ function q96ToDecimal(q96: string | bigint | undefined, decimals = 8): string {
   return `${whole}.${fracDecimal.toString().padStart(decimals, '0')}`
 }
 
+function q96ToPrice(q96: string | bigint | undefined, tokenDecimals: number, currencyDecimals: number, displayDecimals = 8): string {
+  if (!q96) return '?'
+  const big = BigInt(q96)
+  const shift = tokenDecimals - currencyDecimals
+  const shifted = shift >= 0
+    ? big * 10n ** BigInt(shift)
+    : big / 10n ** BigInt(-shift)
+  return q96ToDecimal(shifted, displayDecimals)
+}
+
 // ─── Known completed auctions (add more as they happen) ─────────────────────
 // Discovery: Uniswap app URL pattern: app.uniswap.org/explore/auctions/{chain}/{contractAddress}
 // Also monitor @UniswapAuctions on X — they post every new auction publicly
@@ -52,7 +62,7 @@ const KNOWN_AUCTIONS = [
     chain: 'mainnet',
     contractAddress: '0x608c4e792c65f5527b3f70715dea44d3b302f4ee' as `0x${string}`,
     startBlock: 23790741n,
-    notes: '$59M raised, 17,000 bidders, Nov-Dec 2025. Concluded block 23,955,276. Validation hook: ZK Passport + contributor allowlist.',
+    notes: '$59M raised, 17,232 bids, 14,096 unique bidders, Nov-Dec 2025. Concluded block 23,955,276. Validation hook: ZK Passport + contributor allowlist.',
     isTest: false,
   },
   {
@@ -60,7 +70,7 @@ const KNOWN_AUCTIONS = [
     chain: 'mainnet',
     contractAddress: '0xfFDab1083fCbBCEE32997795388B3D61Ebab786E' as `0x${string}`,
     startBlock: 0n,
-    notes: '1,016 ETH raised, 577 bids, 292 unique wallets, Jun 3-11 2026. 4th largest CCA by volume. HardFi/gold platform.',
+    notes: '1,016 ETH raised, ~577 bids, ~291 unique wallets, Jun 3-11 2026. 4th largest CCA by volume. HardFi/gold platform.',
     isTest: false,
   },
   {
@@ -117,7 +127,7 @@ const AUCTION_ABI = [
   { name: 'totalCleared',           type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { name: 'token',                  type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   parseAbiItem('event CheckpointUpdated(uint256 indexed blockNumber, uint256 clearingPrice, uint24 cumulativeMps)'),
-  parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint256 amount)'),
+  parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint128 amount)'),
 ] as const
 
 const ERC20_ABI = [
@@ -136,8 +146,16 @@ const CHAINS: Record<string, { chain: any, secsPerBlock: number, explorer: strin
 }
 
 // ─── RPC clients ────────────────────────────────────────────────────────────
+const PUBLIC_RPCS: Record<string, string> = {
+  mainnet:  'https://eth.blockscout.com/api/eth-rpc',
+  base:     'https://base.blockscout.com/api/eth-rpc',
+  arbitrum: 'https://arbitrum.blockscout.com/api/eth-rpc',
+}
+
 function getClient(chainName: string, usePublicRpc = false) {
-  const rpcUrl = usePublicRpc ? undefined : process.env[`RPC_URL_${chainName.toUpperCase()}`]
+  const rpcUrl = usePublicRpc
+    ? PUBLIC_RPCS[chainName]
+    : process.env[`RPC_URL_${chainName.toUpperCase()}`]
   const chainCfg = CHAINS[chainName]
   if (!chainCfg) throw new Error(`Unknown chain: ${chainName}`)
   return createPublicClient({
@@ -169,6 +187,42 @@ const TELEGRAM_TARGETS = {
 }
 const PUBLIC_DELAY_MS = 30 * 60 * 1000 // 30-minute delay for public channel
 
+// ─── Persistent public alert queue ──────────────────────────────────────────
+const PENDING_ALERTS_FILE = 'data/pending-public-alerts.json'
+
+interface PendingAlert {
+  sendAt: string
+  text: string
+}
+
+function loadPendingAlerts(): PendingAlert[] {
+  try {
+    if (fs.existsSync(PENDING_ALERTS_FILE)) return JSON.parse(fs.readFileSync(PENDING_ALERTS_FILE, 'utf-8'))
+  } catch {}
+  return []
+}
+
+function savePendingAlerts(alerts: PendingAlert[]) {
+  fs.mkdirSync('data', { recursive: true })
+  fs.writeFileSync(PENDING_ALERTS_FILE, JSON.stringify(alerts, null, 2))
+}
+
+async function flushPendingAlerts() {
+  const alerts = loadPendingAlerts()
+  if (!alerts.length) return
+  const now = Date.now()
+  const ready = alerts.filter(a => new Date(a.sendAt).getTime() <= now)
+  const remaining = alerts.filter(a => new Date(a.sendAt).getTime() > now)
+  const publicId = TELEGRAM_TARGETS.public
+  if (publicId && ready.length > 0) {
+    for (const alert of ready) {
+      await sendTelegramTo(publicId, alert.text)
+    }
+    savePendingAlerts(remaining)
+    console.log(`Flushed ${ready.length} pending public alert(s)`)
+  }
+}
+
 async function sendTelegramTo(chatId: string, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
@@ -188,11 +242,13 @@ async function sendTelegram(text: string) {
   const targets = [TELEGRAM_TARGETS.dm, TELEGRAM_TARGETS.premium].filter(Boolean) as string[]
   await Promise.all(targets.map(id => sendTelegramTo(id, text)))
 
-  // Delayed: public channel (with promo footer)
+  // Delayed: public channel (persisted to survive restarts)
   const publicId = TELEGRAM_TARGETS.public
   if (publicId) {
     const publicText = text + `\n\n⏱ <i>This alert was delayed 30 min. Get instant alerts:</i> <b>@cca_monitor_bot</b>`
-    setTimeout(() => sendTelegramTo(publicId, publicText), PUBLIC_DELAY_MS)
+    const alerts = loadPendingAlerts()
+    alerts.push({ sendAt: new Date(Date.now() + PUBLIC_DELAY_MS).toISOString(), text: publicText })
+    savePendingAlerts(alerts)
   }
 }
 
@@ -248,40 +304,96 @@ const MAX_LOG_RANGE = 50000n
 async function getLogsChunked(
   client: ReturnType<typeof getClient>,
   params: { address: `0x${string}`, event: any, fromBlock: bigint, toBlock: bigint },
+  uncapped = false,
+  chainName?: string,
 ) {
-  const cappedTo = (params.toBlock - params.fromBlock > MAX_LOG_RANGE)
+  const wasCapped = !uncapped && params.toBlock - params.fromBlock > MAX_LOG_RANGE
+  const cappedTo = wasCapped
     ? params.fromBlock + MAX_LOG_RANGE
     : params.toBlock
+  const totalRange = cappedTo - params.fromBlock
 
-  const allLogs: any[] = []
-  let from = params.fromBlock
-  let retries = 0
-  while (from <= cappedTo) {
-    const to = from + LOG_CHUNK_SIZE < cappedTo ? from + LOG_CHUNK_SIZE : cappedTo
-    try {
-      const logs = await client.getLogs({
-        address: params.address,
-        event: params.event,
-        fromBlock: from,
-        toBlock: to,
-      })
-      allLogs.push(...logs)
-      from = to + 1n
-      retries = 0
-    } catch (err: any) {
-      const msg = err?.details || err?.message || ''
-      if ((msg.includes('Too Many') || msg.includes('429')) && retries < 5) {
-        retries++
-        await new Promise(r => setTimeout(r, 1000 * retries))
-        continue
+  const CHUNK_FLOOR = 9n
+  const MAX_CHUNKS = 2000n
+  let loggedRangeError = false
+
+  const isRangeError = (msg: string) =>
+    /block range|range.{0,5}too large|exceeds|limited to|max is/i.test(msg)
+
+  const doScan = async (scanClient: ReturnType<typeof getClient>, initialChunkSize: bigint) => {
+    const allLogs: any[] = []
+    let from = params.fromBlock
+    let chunkSize = initialChunkSize
+    let retries = 0
+    let chunks = 0
+
+    while (from <= cappedTo) {
+      const to = from + chunkSize < cappedTo ? from + chunkSize : cappedTo
+      try {
+        const logs = await scanClient.getLogs({
+          address: params.address,
+          event: params.event,
+          fromBlock: from,
+          toBlock: to,
+        })
+        allLogs.push(...logs)
+        from = to + 1n
+        retries = 0
+        chunks++
+        if (chunks % 100 === 0) {
+          const pct = totalRange > 0n ? Number((from - params.fromBlock) * 100n / totalRange) : 100
+          console.log(`  ...${pct}% scanned (${chunks} chunks, ${allLogs.length} events)`)
+        }
+      } catch (err: any) {
+        const msg = err?.details || err?.message || ''
+
+        // Rate limit — backoff and retry
+        if (/too many|429/i.test(msg) && retries < 5) {
+          retries++
+          await new Promise(r => setTimeout(r, 1000 * retries))
+          continue
+        }
+
+        // Block range error — halve chunk size and retry same segment
+        if (isRangeError(msg)) {
+          if (!loggedRangeError) {
+            console.log(`  Block range error: ${msg}`)
+            loggedRangeError = true
+          }
+          const newSize = chunkSize / 2n < CHUNK_FLOOR ? CHUNK_FLOOR : chunkSize / 2n
+          if (newSize < chunkSize) {
+            chunkSize = newSize
+            if (totalRange / chunkSize > MAX_CHUNKS) throw err
+            console.log(`  Adapting chunk size to ${chunkSize} blocks`)
+            continue
+          }
+          throw err // at floor, can't reduce further
+        }
+
+        throw err
       }
-      throw err
     }
+    return allLogs
   }
-  if (params.toBlock - params.fromBlock > MAX_LOG_RANGE) {
-    console.log(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
+
+  // Try primary client
+  try {
+    const logs = await doScan(client, LOG_CHUNK_SIZE)
+    if (wasCapped) console.log(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
+    return { logs, wasCapped }
+  } catch (primaryErr: any) {
+    const msg = primaryErr?.details || primaryErr?.message || ''
+    if (!chainName || !isRangeError(msg)) throw primaryErr
   }
-  return allLogs
+
+  // Fallback: public RPC with original chunk size
+  console.log(`  Primary RPC failed, trying public RPC fallback...`)
+  loggedRangeError = false
+  const publicClient = getClient(chainName, true)
+  const logs = await doScan(publicClient, LOG_CHUNK_SIZE)
+  console.log(`  Scan completed via public RPC fallback`)
+  if (wasCapped) console.log(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
+  return { logs, wasCapped }
 }
 
 // ─── HISTORICAL: Pull params + outcomes from a known auction ────────────────
@@ -370,9 +482,9 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
       } catch {}
     }
 
-    // Decode Q96 prices to human-readable
-    const floorDecimal = q96ToDecimal(ok(floorPrice)?.toString())
-    const clearingDecimal = q96ToDecimal(ok(clearingPrice)?.toString())
+    // Decode Q96 prices to human-readable (decimals-aware)
+    const floorDecimal = q96ToPrice(ok(floorPrice)?.toString(), tokenDecimals ?? 18, currencyDecimals)
+    const clearingDecimal = q96ToPrice(ok(clearingPrice)?.toString(), tokenDecimals ?? 18, currencyDecimals)
     const clearingVsFloor = (floorBig > 0n && ok(clearingPrice))
       ? `${(Number(BigInt(ok(clearingPrice)) * 10000n / floorBig) / 100).toFixed(1)}%`
       : '?'
@@ -449,25 +561,21 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
     const logToBlock = endBlockVal || (logFromBlock + 50000n)
     console.log(`Fetching bid events (blocks ${logFromBlock}–${logToBlock})...`)
     try {
-      const bidLogs = await getLogsChunked(client, {
+      const { logs: bidLogs, wasCapped } = await getLogsChunked(client, {
         address: auction.contractAddress,
-        event: parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint256 amount)'),
+        event: parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint128 amount)'),
         fromBlock: logFromBlock,
         toBlock: logToBlock,
-      })
+      }, true, auction.chain)
 
       const uniqueBidders = new Set(bidLogs.map(log => (log.args as any).owner)).size
       const totalBids = bidLogs.length
       console.log(`Bid stats: ${totalBids} total bids, ${uniqueBidders} unique bidders`)
-      return { ...result, uniqueBidders, totalBids }
+      return { ...result, uniqueBidders, totalBids, bidScanPartial: wasCapped }
     } catch (logErr: any) {
       const msg = logErr?.details || logErr?.message || ''
-      if (msg.includes('block range') || msg.includes('Free tier')) {
-        console.log(`Skipping bid events — RPC block range too limited.`)
-      } else {
-        console.log(`Skipping bid events — ${msg}`)
-      }
-      return result
+      console.log(`Skipping bid events — ${msg || 'unknown error'}`)
+      return { ...result, bidScanPartial: true }
     }
 
   } catch (err) {
@@ -604,6 +712,8 @@ async function initTokenTracking() {
 
 // ─── Daily market summary ───────────────────────────────────────────────────
 let lastDailySummary = ''
+let lastHeartbeat = ''
+const lastSuccessfulPoll: Record<string, string> = {}
 
 async function sendDailySummary() {
   const now = new Date()
@@ -665,6 +775,55 @@ async function sendDailySummary() {
 
   await sendTelegram(lines.join('\n'))
   console.log(`Daily summary sent (${dateKey})`)
+}
+
+// ─── Watchdog heartbeat (DM only) ───────────────────────────────────────────
+async function sendHeartbeat() {
+  const now = new Date()
+  const dateKey = now.toISOString().slice(0, 10)
+  if (dateKey === lastHeartbeat) return
+  if (now.getUTCHours() !== 9) return
+  lastHeartbeat = dateKey
+
+  const dmId = TELEGRAM_TARGETS.dm
+  if (!dmId) return
+
+  let totalAuctions = 0
+  try {
+    const data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8'))
+    totalAuctions = data.auctions?.length || 0
+  } catch {}
+
+  const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain']
+  const lines: string[] = []
+  let hasWarning = false
+  const oneHourAgo = Date.now() - 60 * 60 * 1000
+
+  for (const chain of chainNames) {
+    const lastPoll = lastSuccessfulPoll[chain]
+    if (!lastPoll) {
+      hasWarning = true
+      lines.push(`  ⚠️ ${chain}: never polled`)
+    } else {
+      const stale = new Date(lastPoll).getTime() < oneHourAgo
+      if (stale) hasWarning = true
+      lines.push(`  ${stale ? '⚠️' : '✅'} ${chain}: ${new Date(lastPoll).toISOString().slice(11, 19)} UTC`)
+    }
+  }
+
+  const header = hasWarning ? '⚠️ <b>WATCHDOG HEARTBEAT</b>' : '💚 <b>WATCHDOG HEARTBEAT</b>'
+  const msg = [
+    header,
+    ``,
+    `<b>Last successful poll:</b>`,
+    ...lines,
+    ``,
+    `<b>Active auctions:</b> ${trackedAuctions.length}`,
+    `<b>Total in dataset:</b> ${totalAuctions}`,
+  ].join('\n')
+
+  await sendTelegramTo(dmId, msg)
+  console.log(`Heartbeat sent (${dateKey})`)
 }
 
 // ─── Whale bid alert helper ─────────────────────────────────────────────────
@@ -843,7 +1002,7 @@ async function pollBids() {
 
       const bidLogs = await client.getLogs({
         address: auction.address,
-        event: parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint256 amount)'),
+        event: parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint128 amount)'),
         fromBlock: auction.lastScannedBlock + 1n,
         toBlock: scanTo,
       })
@@ -992,16 +1151,21 @@ async function watchForNewAuctions() {
         }
 
         lastBlock[name] = currentBlock
+        lastSuccessfulPoll[name] = new Date().toISOString()
       } catch (err: any) {
         // Silently retry on next poll — transient RPC errors are normal
       }
     }
   }
 
+  // Flush any pending public alerts from before restart
+  await flushPendingAlerts()
+
   const interval = setInterval(poll, 30_000)
   const bidInterval = setInterval(pollBids, BID_POLL_INTERVAL)
   const priceInterval = setInterval(pollPrices, PRICE_CHECK_INTERVAL)
-  const dailyInterval = setInterval(sendDailySummary, 60_000) // check every minute if it's 9 UTC
+  const alertFlushInterval = setInterval(flushPendingAlerts, 60_000)
+  const dailyInterval = setInterval(async () => { await sendDailySummary(); await sendHeartbeat(); }, 60_000)
 
   // Init graduated token price tracking
   console.log('\nInitializing token price tracking...')
@@ -1041,6 +1205,7 @@ async function watchForNewAuctions() {
     clearInterval(interval)
     clearInterval(bidInterval)
     clearInterval(priceInterval)
+    clearInterval(alertFlushInterval)
     clearInterval(dailyInterval)
     process.exit(0)
   })
