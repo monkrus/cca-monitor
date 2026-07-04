@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-04T07:24:04.455Z",
+  "timestamp": "2026-07-04T19:01:15.911Z",
   "summary": {
     "total": 4,
     "real": 4,
@@ -40,7 +40,8 @@
       ],
       "uniqueBidders": 14096,
       "totalBids": 17232,
-      "bidScanPartial": false
+      "bidScanPartial": false,
+      "repeatBidders": 63
     },
     {
       "name": "STRATO",
@@ -49,7 +50,7 @@
       "tokenAddress": "0x4c93B9FbF7Fd1777CCBcBc538B1d0a8b58fB1ad6",
       "tokenName": "Ethereum STRATO",
       "tokenSymbol": "STRATO",
-      "tokenSupply": "3,029,200",
+      "tokenSupply": "3,028,167",
       "startBlock": "25237800",
       "endBlock": "25295401",
       "floorPrice_Q96": "10424758225561097051782096",
@@ -74,7 +75,8 @@
       ],
       "uniqueBidders": 291,
       "totalBids": 575,
-      "bidScanPartial": false
+      "bidScanPartial": false,
+      "repeatBidders": 22
     },
     {
       "name": "wOCT",
@@ -83,7 +85,7 @@
       "tokenAddress": "0x4647e1fE715c9e23959022C2416C71867F5a6E80",
       "tokenName": "Wrapped OCT",
       "tokenSymbol": "wOCT",
-      "tokenSupply": "196,116,748",
+      "tokenSupply": "196,243,607",
       "startBlock": "24870973",
       "endBlock": "24921374",
       "floorPrice_Q96": "4294967300",
@@ -107,7 +109,8 @@
       ],
       "uniqueBidders": 812,
       "totalBids": 1867,
-      "bidScanPartial": false
+      "bidScanPartial": false,
+      "repeatBidders": 46
     },
     {
       "name": "CAP",
@@ -140,7 +143,8 @@
       ],
       "uniqueBidders": 416,
       "totalBids": 1002,
-      "bidScanPartial": false
+      "bidScanPartial": false,
+      "repeatBidders": 50
     }
   ]
 }

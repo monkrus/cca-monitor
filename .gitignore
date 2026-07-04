@@ -3,3 +3,7 @@ node_modules/
 data/live-detections.json
 data/subscribers.json
 data/tracked-tokens.json
+data/intent-seen.json
+data/detection-dates.json
+data/end-alerts-sent.json
+data/pending-public-alerts.json

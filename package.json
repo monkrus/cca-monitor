@@ -8,6 +8,7 @@
     "watch": "npx tsx cca-collector.ts watch",
     "dashboard": "npx serve . -l 3000",
     "bot": "npx tsx bot-server.ts",
+    "intent": "npx tsx intent-radar.ts",
     "test": "npx tsx test.ts"
   },
   "dependencies": {

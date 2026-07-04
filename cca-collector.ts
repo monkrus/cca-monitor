@@ -568,10 +568,11 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
         toBlock: logToBlock,
       }, true, auction.chain)
 
-      const uniqueBidders = new Set(bidLogs.map(log => (log.args as any).owner)).size
+      const bidderAddresses = new Set(bidLogs.map(log => ((log.args as any).owner as string).toLowerCase()))
+      const uniqueBidders = bidderAddresses.size
       const totalBids = bidLogs.length
       console.log(`Bid stats: ${totalBids} total bids, ${uniqueBidders} unique bidders`)
-      return { ...result, uniqueBidders, totalBids, bidScanPartial: wasCapped }
+      return { ...result, uniqueBidders, totalBids, bidScanPartial: wasCapped, _bidderAddresses: [...bidderAddresses] }
     } catch (logErr: any) {
       const msg = logErr?.details || logErr?.message || ''
       console.log(`Skipping bid events — ${msg || 'unknown error'}`)
@@ -777,6 +778,54 @@ async function sendDailySummary() {
   console.log(`Daily summary sent (${dateKey})`)
 }
 
+// ─── Auction detection dates (for go/no-go trigger) ─────────────────────────
+const DETECTION_DATES_FILE = 'data/detection-dates.json'
+
+interface DetectionDates { [nameOrAddress: string]: string } // ISO date or 'unknown'
+
+function loadDetectionDates(): DetectionDates {
+  try {
+    if (fs.existsSync(DETECTION_DATES_FILE)) return JSON.parse(fs.readFileSync(DETECTION_DATES_FILE, 'utf-8'))
+  } catch {}
+  return {}
+}
+
+function saveDetectionDates(d: DetectionDates) {
+  fs.mkdirSync('data', { recursive: true })
+  fs.writeFileSync(DETECTION_DATES_FILE, JSON.stringify(d, null, 2))
+}
+
+function backfillDetectionDates() {
+  const dates = loadDetectionDates()
+  let changed = false
+  for (const a of KNOWN_AUCTIONS) {
+    if (a.isTest) continue
+    const key = a.name
+    if (dates[key]) continue
+    // Try to parse a date from notes (e.g. "Nov-Dec 2025", "Jun 3-11 2026")
+    const m = a.notes.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})(?!\d)/i)
+      || a.notes.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i)
+    const yearMatch = a.notes.match(/\b(20\d{2})\b/)
+    if (m && yearMatch) {
+      const parsed = new Date(`${m[0]} ${yearMatch[1]}`)
+      dates[key] = !isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : 'unknown'
+    } else {
+      dates[key] = 'unknown'
+    }
+    changed = true
+  }
+  if (changed) saveDetectionDates(dates)
+  return dates
+}
+
+function recordDetection(nameOrAddress: string) {
+  const dates = loadDetectionDates()
+  if (!dates[nameOrAddress]) {
+    dates[nameOrAddress] = new Date().toISOString().slice(0, 10)
+    saveDetectionDates(dates)
+  }
+}
+
 // ─── Watchdog heartbeat (DM only) ───────────────────────────────────────────
 async function sendHeartbeat() {
   const now = new Date()
@@ -841,15 +890,28 @@ async function sendHeartbeat() {
     } catch {}
   }
 
+  // Go/no-go trigger: trailing 30d real auction velocity
+  const detDates = backfillDetectionDates()
+  const realDetections = Object.entries(detDates).filter(([, d]) => d !== 'unknown')
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const trailing30d = realDetections.filter(([, d]) => d >= thirtyDaysAgo).length
+  const totalReal = KNOWN_AUCTIONS.filter(a => !a.isTest).length
+
+  const triggerLine = trailing30d >= 3
+    ? `🚦 <b>TRIGGER MET:</b> CCA velocity at ${trailing30d}/month — start audit outreach.\n`
+    : ''
+
   const header = hasWarning ? '⚠️ <b>WATCHDOG HEARTBEAT</b>' : '💚 <b>WATCHDOG HEARTBEAT</b>'
   const msg = [
-    header,
+    triggerLine + header,
     ``,
     `<b>Last successful poll:</b>`,
     ...lines,
     ``,
     `<b>Active auctions:</b> ${trackedAuctions.length}`,
     `<b>Total in dataset:</b> ${totalAuctions}`,
+    `<b>Real auctions (all time):</b> ${totalReal}`,
+    `<b>Real auctions (trailing 30d):</b> ${trailing30d}`,
     ...subLines,
     publicMembers ? `<b>Public channel members:</b> ${publicMembers.split(': ')[1]}` : '',
   ].filter(Boolean).join('\n')
@@ -1290,6 +1352,7 @@ async function watchForNewAuctions() {
             uniswap: uniswapUrl,
           }
           appendDetection(detection)
+          recordDetection(auction as string)
 
           sendWebhook(detection)
 
@@ -1414,6 +1477,50 @@ async function main() {
     console.log(`Failed: ${results.filter(r => r.graduated === false).length}`)
     console.log(`With validation hooks: ${results.filter(r => r.hasValidationHook).length}`)
 
+    // ── Repeat-bidder cross-reference (real auctions only) ──────────────
+    const bidderIndex: Map<string, string[]> = new Map() // address -> auction names
+    for (const r of real) {
+      const addrs = (r as any)._bidderAddresses as string[] | undefined
+      if (!addrs) continue
+      for (const addr of addrs) {
+        const list = bidderIndex.get(addr)
+        if (list) list.push(r.name)
+        else bidderIndex.set(addr, [r.name])
+      }
+    }
+
+    const repeatBidders = [...bidderIndex.entries()].filter(([, auctions]) => auctions.length >= 2)
+    const bidderIndexSorted = [...bidderIndex.entries()]
+      .map(([address, auctions]) => ({ address, auctionCount: auctions.length, auctions }))
+      .sort((a, b) => b.auctionCount - a.auctionCount)
+
+    // Add repeatBidders count to each result
+    for (const r of real) {
+      const addrs = (r as any)._bidderAddresses as string[] | undefined
+      if (!addrs) { (r as any).repeatBidders = 0; continue }
+      (r as any).repeatBidders = addrs.filter(a => (bidderIndex.get(a)?.length ?? 0) >= 2).length
+    }
+
+    // Write bidder index
+    fs.writeFileSync('data/bidder-index.json', JSON.stringify(bidderIndexSorted, null, 2))
+
+    console.log(`\nREPEAT-BIDDER CROSS-REFERENCE`)
+    console.log('='.repeat(60))
+    console.log(`Total unique addresses (real auctions): ${bidderIndex.size.toLocaleString()}`)
+    console.log(`Appearing in 2+ auctions: ${repeatBidders.length.toLocaleString()}`)
+    if (bidderIndexSorted.length > 0) {
+      console.log(`\nTop 10 repeat bidders:`)
+      for (const entry of bidderIndexSorted.slice(0, 10)) {
+        console.log(`  ${entry.address}  ${entry.auctionCount} auctions: ${entry.auctions.join(', ')}`)
+      }
+    }
+    for (const r of real) {
+      console.log(`  ${r.name}: ${(r as any).repeatBidders} repeat bidders`)
+    }
+
+    // Strip internal _bidderAddresses before saving
+    for (const r of results) delete (r as any)._bidderAddresses
+
     // Save to file
     const output = {
       timestamp: new Date().toISOString(),
@@ -1431,6 +1538,7 @@ async function main() {
     fs.mkdirSync('data', { recursive: true })
     fs.writeFileSync('data/results.json', JSON.stringify(output, null, 2))
     console.log(`\nResults saved to data/results.json`)
+    console.log(`Bidder index saved to data/bidder-index.json`)
   }
 }
 
