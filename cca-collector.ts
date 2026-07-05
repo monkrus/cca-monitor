@@ -795,24 +795,33 @@ function saveDetectionDates(d: DetectionDates) {
   fs.writeFileSync(DETECTION_DATES_FILE, JSON.stringify(d, null, 2))
 }
 
-function backfillDetectionDates() {
+async function backfillDetectionDates() {
   const dates = loadDetectionDates()
   let changed = false
   for (const a of KNOWN_AUCTIONS) {
     if (a.isTest) continue
     const key = a.name
-    if (dates[key]) continue
-    // Try to parse a date from notes (e.g. "Nov-Dec 2025", "Jun 3-11 2026")
-    const m = a.notes.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})(?!\d)/i)
-      || a.notes.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i)
-    const yearMatch = a.notes.match(/\b(20\d{2})\b/)
-    if (m && yearMatch) {
-      const parsed = new Date(`${m[0]} ${yearMatch[1]}`)
-      dates[key] = !isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : 'unknown'
-    } else {
-      dates[key] = 'unknown'
+    if (dates[key] && dates[key] !== 'unknown') continue
+    // Fetch startBlock timestamp from chain (exact, replaces notes parsing)
+    try {
+      const client = getClient(a.chain)
+      let startBlockNum: bigint
+      if (a.startBlock && a.startBlock > 0n) {
+        startBlockNum = a.startBlock
+      } else {
+        const [sbResult] = await client.multicall({
+          contracts: [{ address: a.contractAddress, abi: AUCTION_ABI as any, functionName: 'startBlock' }],
+        })
+        startBlockNum = sbResult.status === 'success' ? (sbResult.result as bigint) : 0n
+      }
+      if (startBlockNum > 0n) {
+        const block = await client.getBlock({ blockNumber: startBlockNum })
+        dates[key] = new Date(Number(block.timestamp) * 1000).toISOString().slice(0, 10)
+        changed = true
+      }
+    } catch {
+      // Leave as-is if RPC fails; will retry next heartbeat
     }
-    changed = true
   }
   if (changed) saveDetectionDates(dates)
   return dates
@@ -891,7 +900,7 @@ async function sendHeartbeat() {
   }
 
   // Go/no-go trigger: trailing 30d real auction velocity
-  const detDates = backfillDetectionDates()
+  const detDates = await backfillDetectionDates()
   const realDetections = Object.entries(detDates).filter(([, d]) => d !== 'unknown')
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const trailing30d = realDetections.filter(([, d]) => d >= thirtyDaysAgo).length
@@ -1518,6 +1527,42 @@ async function main() {
       console.log(`  ${r.name}: ${(r as any).repeatBidders} repeat bidders`)
     }
 
+    // ── Hook clustering analysis ──────────────────────────────────────
+    const hookedAuctions = new Set(real.filter(r => r.hasValidationHook).map(r => r.name))
+    let repeatInHooked = 0, repeatInOpen = 0, singleInHooked = 0, singleInOpen = 0
+    for (const [addr, auctions] of bidderIndex) {
+      const isRepeat = auctions.length >= 2
+      for (const aName of auctions) {
+        const hooked = hookedAuctions.has(aName)
+        if (isRepeat) { hooked ? repeatInHooked++ : repeatInOpen++ }
+        else { hooked ? singleInHooked++ : singleInOpen++ }
+      }
+    }
+    const repeatTotal = repeatInHooked + repeatInOpen
+    const singleTotal = singleInHooked + singleInOpen
+    const repeatHookedPct = repeatTotal > 0 ? (repeatInHooked / repeatTotal * 100).toFixed(1) : '0'
+    const singleHookedPct = singleTotal > 0 ? (singleInHooked / singleTotal * 100).toFixed(1) : '0'
+
+    console.log(`\nHOOK CLUSTERING`)
+    console.log('='.repeat(60))
+    console.log(`Hooked auctions: ${[...hookedAuctions].join(', ')}`)
+    console.log(`Repeat bidders — participations in hooked: ${repeatInHooked}, open: ${repeatInOpen} (${repeatHookedPct}% hooked)`)
+    console.log(`Single bidders — participations in hooked: ${singleInHooked}, open: ${singleInOpen} (${singleHookedPct}% hooked)`)
+    for (const r of real) {
+      const total = (r as any).uniqueBidders || 0
+      const repeat = (r as any).repeatBidders || 0
+      const pct = total > 0 ? (repeat / total * 100).toFixed(1) : '0'
+      console.log(`  ${r.name}: ${repeat}/${total} repeat bidders (${pct}%)${r.hasValidationHook ? ' [hooked]' : ' [open]'}`)
+    }
+
+    const bidderInsights = {
+      totalUnique: bidderIndex.size,
+      repeatBidders: repeatBidders.length,
+      recurrenceRate: `${(repeatBidders.length / bidderIndex.size * 100).toFixed(2)}%`,
+      repeatInHooked, repeatInOpen, repeatHookedPct: `${repeatHookedPct}%`,
+      singleInHooked, singleInOpen, singleHookedPct: `${singleHookedPct}%`,
+    }
+
     // Strip internal _bidderAddresses before saving
     for (const r of results) delete (r as any)._bidderAddresses
 
@@ -1531,6 +1576,7 @@ async function main() {
         graduated: results.filter(r => r.graduated).length,
         failed: results.filter(r => r.graduated === false).length,
         withHooks: results.filter(r => r.hasValidationHook).length,
+        bidderInsights,
       },
       auctions: results,
     }

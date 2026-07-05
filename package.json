@@ -9,6 +9,8 @@
     "dashboard": "npx serve . -l 3000",
     "bot": "npx tsx bot-server.ts",
     "intent": "npx tsx intent-radar.ts",
+    "profile": "npx tsx bidder-profile.ts",
+    "postmortem": "npx tsx postmortem.ts",
     "test": "npx tsx test.ts"
   },
   "dependencies": {
