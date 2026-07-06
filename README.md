@@ -1,5 +1,8 @@
 # CCA Monitor
 
+<!-- TODO: replace with published URL -->
+<!-- > **Read the analysis:** [CCA Post-Mortem — Who Bids Twice?](https://TODO) -->
+
 On-chain data collector and live monitor for Uniswap's [Continuous Clearing Auctions](https://blog.uniswap.org/cca) (CCAs).
 
 Tracks all CCA deployments across Ethereum, Base, Arbitrum, and Unichain. Pulls auction parameters, outcomes, token identity, decoded prices, and risk flags. Optionally watches the factory contract in real time for new auctions.

@@ -1,8 +1,9 @@
 /**
  * Whale Profile — deep-dive a single bidder across all real CCA auctions
  *
- * Usage: npm run profile [address]
+ * Usage: npm run profile [address] [--md]
  * Default: the address that bid in the most auctions (from bidder-index.json)
+ * --md: print article-ready markdown table
  */
 
 import * as fs from 'fs'
@@ -19,7 +20,10 @@ function loadBidderIndex(): Array<{ address: string; auctionCount: number; aucti
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 async function main() {
-  let targetAddr = process.argv[2]?.toLowerCase()
+  const args = process.argv.slice(2)
+  const mdFlag = args.includes('--md')
+  const positional = args.filter(a => !a.startsWith('--'))
+  let targetAddr = positional[0]?.toLowerCase()
 
   if (!targetAddr) {
     const index = loadBidderIndex()
@@ -46,6 +50,7 @@ async function main() {
   console.log(`Participated in ${entry.auctionCount} auction(s): ${entry.auctions.join(', ')}\n`)
 
   const summaryRows: string[] = []
+  const mdRows: { auction: string; bids: number; committed: string; entryPct: string; exitPct: string; vsClear: string }[] = []
 
   for (const auctionName of entry.auctions) {
     const auctionData = auctions.find((a: any) => a.name === auctionName)
@@ -140,20 +145,39 @@ async function main() {
     summaryRows.push(
       `${auctionName.padEnd(8)} ${String(myBids.length).padStart(4)} bids  ${amtStr.padStart(22)}  entry ${entryPct.padStart(5)}%  last ${exitPct.padStart(5)}%  ${priceAnalysis || ''}`
     )
+
+    mdRows.push({
+      auction: auctionName,
+      bids: myBids.length,
+      committed: amtStr,
+      entryPct,
+      exitPct,
+      vsClear: priceAnalysis || 'n/a',
+    })
   }
 
-  console.log('SUMMARY')
-  console.log('='.repeat(70))
-  console.log(`Address: ${targetAddr}`)
-  console.log(`Auctions: ${entry.auctionCount}`)
-  console.log()
-  for (const row of summaryRows) console.log(`  ${row}`)
+  if (mdFlag) {
+    console.log(`\n### Whale Profile: \`${targetAddr}\`\n`)
+    console.log(`| Auction | Bids | Total committed | Entry % | Exit % | vs. clearing |`)
+    console.log(`|---------|------|-----------------|---------|--------|--------------|`)
+    for (const r of mdRows) {
+      console.log(`| ${r.auction} | ${r.bids} | ${r.committed} | ${r.entryPct}% | ${r.exitPct}% | ${r.vsClear} |`)
+    }
+    console.log(`\n_${entry.auctionCount} auction(s). No bid-mutation events (BidUpdated/BidCancelled) in CCA ABI — sums are gross = net._`)
+  } else {
+    console.log('SUMMARY')
+    console.log('='.repeat(70))
+    console.log(`Address: ${targetAddr}`)
+    console.log(`Auctions: ${entry.auctionCount}`)
+    console.log()
+    for (const row of summaryRows) console.log(`  ${row}`)
+  }
 }
 
-// ─── Helper: find contract address from results or known auctions ───────────
+// ─── Helper: find contract address from results ─────────────────────────────
 function findContractAddress(auctionData: any): string | null {
-  // results.json doesn't store contractAddress directly, but we can find it
-  // from the known auctions list or look it up
+  if (auctionData.contractAddress) return auctionData.contractAddress
+  // Fallback for old results.json without contractAddress
   const knownMap: Record<string, string> = {
     AZTEC:  '0x608c4e792c65f5527b3f70715dea44d3b302f4ee',
     STRATO: '0xfFDab1083fCbBCEE32997795388B3D61Ebab786E',

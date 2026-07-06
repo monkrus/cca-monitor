@@ -16,6 +16,7 @@ dotenv.config()
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!
 const PREMIUM_CHANNEL_ID = process.env.TELEGRAM_PREMIUM_CHANNEL_ID!
+const ARTICLE_URL = process.env.ARTICLE_URL || ''
 const API = `https://api.telegram.org/bot${BOT_TOKEN}`
 
 // ─── Pricing tiers ──────────────────────────────────────────────────────────
@@ -94,6 +95,7 @@ async function handleStart(chatId: number) {
     `/subscribe — Choose a plan`,
     `/stats — CCA dataset stats (free)`,
     `/status — Check your subscription`,
+    ...(ARTICLE_URL ? [``, `Full analysis: ${ARTICLE_URL}`] : []),
   ].join('\n'))
 }
 
@@ -244,6 +246,7 @@ async function handleStats(chatId: number) {
       `Unique bidders: ${totalBidders.toLocaleString()}`,
       ``,
       `<i>Updated live from on-chain data.</i>`,
+      ...(ARTICLE_URL ? [``, `Full analysis: ${ARTICLE_URL}`] : []),
     ].join('\n'))
   } catch {
     await sendMessage(chatId, `Stats unavailable — run <code>npm run analyze</code> first.`)
