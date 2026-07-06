@@ -290,7 +290,10 @@ function appendResult(result: Record<string, any>) {
   fs.mkdirSync('data', { recursive: true })
   const file = 'data/results.json'
   const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : { timestamp: '', summary: {}, auctions: [] }
-  existing.auctions.push(result)
+  // Upsert by name to avoid duplicates
+  const idx = existing.auctions.findIndex((a: any) => a.name === result.name)
+  if (idx >= 0) existing.auctions[idx] = result
+  else existing.auctions.push(result)
   existing.timestamp = new Date().toISOString()
   existing.summary.total = existing.auctions.length
   fs.writeFileSync(file, JSON.stringify(existing, null, 2))

@@ -11,6 +11,7 @@
     "intent": "npx tsx intent-radar.ts",
     "profile": "npx tsx bidder-profile.ts",
     "postmortem": "npx tsx postmortem.ts",
+    "charts": "npx tsx charts.ts",
     "test": "npx tsx test.ts"
   },
   "dependencies": {

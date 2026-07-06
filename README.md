@@ -13,18 +13,17 @@ cp .env.example .env   # add RPC keys if you have them (optional)
 
 Public RPCs work out of the box. Dedicated keys (Alchemy, Infura, Ankr) give better rate limits for bid-event scanning.
 
-## Usage
+## Scripts
 
-```bash
-# Analyze all known real auctions
-npm run analyze
-
-# Include test deployments
-npx tsx cca-collector.ts analyze --include-tests
-
-# Watch for new CCA deployments (all chains, real-time)
-npm run watch
-```
+| Script | Command | Description |
+|--------|---------|-------------|
+| `analyze` | `npm run analyze` | Collect all known real auctions; add `--include-tests` for test deployments |
+| `watch` | `npm run watch` | Live-monitor CCA factory for new deployments (all chains) |
+| `bot` | `npm run bot` | Telegram subscription bot with premium/public channels |
+| `intent` | `npm run intent` | Intent-radar: scan pending auctions for early bidding signals |
+| `profile` | `npm run profile [addr]` | Deep-dive a single bidder across all real auctions |
+| `postmortem` | `npm run postmortem [name]` | Full post-mortem stats for an auction (FDV derivation, cross-auction comparison) |
+| `charts` | `npm run charts` | Generate publication-ready PNGs to `charts/` via QuickChart API |
 
 Results are saved to `data/results.json`.
 
@@ -50,13 +49,15 @@ Set `WEBHOOK_URL` in `.env` to receive JSON POST notifications when new auctions
 
 ## Known Auctions
 
-| Name | Chain | Status | Notes |
-|------|-------|--------|-------|
-| AZTEC | Mainnet | Graduated | $59M raised, 17,232 bids / 14,096 bidders, ZK Passport hook |
-| STRATO | Mainnet | Graduated | 1,016 ETH raised, ~577 bids, HardFi/gold |
-| wOCT | Mainnet | Graduated | Wrapped OCT token |
-| CAP | Mainnet | Graduated | $16.4M USDC, 5.5x oversubscribed |
-| 11 test auctions | Base | Failed | Dec 2025 - May 2026 test deployments |
+| Name | Chain | Status | Bids | Bidders | Clearing/Floor | Raised | Hook |
+|------|-------|--------|------|---------|----------------|--------|------|
+| AZTEC | Mainnet | Graduated | 17,232 | 14,096 | 163% | 19,388 ETH | Yes (ZK Passport) |
+| STRATO | Mainnet | Graduated | 575 | 291 | 407% | 804 ETH | No |
+| wOCT | Mainnet | Graduated | 1,867 | 812 | * | 1,177 ETH | No |
+| CAP | Mainnet | Graduated | 1,002 | 416 | 142% | 3.84M USDC | Yes (KYC) |
+| 11 test auctions | Base | Failed | — | — | — | — | — |
+
+\* wOCT clearing/floor ratio is anomalous due to near-zero floor price.
 
 ## What This Data Enables
 
@@ -79,9 +80,18 @@ Set `WEBHOOK_URL` in `.env` to receive JSON POST notifications when new auctions
 - **Bot integration**: Webhook alerts can trigger automated analysis pipelines, Telegram/Discord bots, or even auto-bidding logic.
 - **Dataset building**: JSON output accumulates a structured dataset of every CCA ever deployed. As the mechanism matures, this becomes the definitive historical record for research and backtesting.
 
+## Dataset Insights
+
+Computed by the `analyze` summary across all 4 real auctions:
+
+- **15,520** unique bidder addresses
+- **86** addresses bid in 2+ auctions (0.55% recurrence rate)
+- Repeat bidders participate in hooked (KYC) auctions **62.4%** of the time vs **93.3%** for single-auction bidders — experienced bidders are more willing to enter open auctions
+- All 4 real auctions graduated successfully
+
 ## Architecture
 
-Single TypeScript file (`cca-collector.ts`) using [viem](https://viem.sh/) for all chain interaction. No ethers.js dependency. Multicall batches all contract reads into one RPC call per auction. Factory events discovered via [Blockscout API](https://eth.blockscout.com) (free, no key required, no block range limits).
+Core logic lives in `cca-collector.ts` with shared utilities (ABI definitions, Q96 decoding, chunked log fetching) extracted to `shared.ts`. Uses [viem](https://viem.sh/) for all chain interaction — no ethers.js dependency. Multicall batches all contract reads into one RPC call per auction. Factory events discovered via [Blockscout API](https://eth.blockscout.com) (free, no key required, no block range limits).
 
 ## License
 

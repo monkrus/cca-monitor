@@ -6,7 +6,7 @@
  */
 
 import * as fs from 'fs'
-import { q96ToPrice } from './shared.ts'
+import { q96ToPrice, q96ToDecimal } from './shared.ts'
 
 function loadResults(): any {
   return JSON.parse(fs.readFileSync('data/results.json', 'utf-8'))
@@ -34,31 +34,36 @@ async function main() {
   const repeatCount = bidderIndex.filter(e => e.auctionCount >= 2).length
   const recurrencePct = (repeatCount / totalUnique * 100).toFixed(2)
 
-  // Token decimals inference for FDV calc
+  // ─── FDV Derivation (full chain, auditable) ──────────────────────────
+  const floorQ96raw = target.floorPrice_Q96 || null
+  const clearingQ96raw = target.finalClearingPrice_Q96 || null
   const currDecimals = target.currencySymbol === 'USDC' || target.currencySymbol === 'USDT' ? 6 : 18
-  const tokDecimals = 18 // CCA tokens are typically 18
-
-  // FDV calculation: price * totalSupply
-  // price is in currency units per token; FDV = price * supply
+  const tokDecimals = 18 // CCA auction tokens use 18 decimals (ERC20 standard)
+  const shift = tokDecimals - currDecimals
   const supplyRaw = target.tokenSupply ? parseInt(target.tokenSupply.replace(/,/g, '')) : null
 
-  const floorPriceNum = target.floorPrice && target.floorPrice !== '?' ? parseFloat(target.floorPrice) : null
-  const clearingPriceNum = target.clearingPrice && target.clearingPrice !== '?' ? parseFloat(target.clearingPrice) : null
+  // Step-by-step decode
+  const Q96 = 2n ** 96n
+  const decodePrice = (rawQ96: string) => {
+    const big = BigInt(rawQ96)
+    const shifted = shift >= 0 ? big * 10n ** BigInt(shift) : big / 10n ** BigInt(-shift)
+    const whole = shifted / Q96
+    const frac = (shifted % Q96) * 10n ** 8n / Q96
+    const decoded = parseFloat(`${whole}.${frac.toString().padStart(8, '0')}`)
+    return { big, shifted, decoded }
+  }
 
-  const floorFDV = floorPriceNum && supplyRaw ? (floorPriceNum * supplyRaw) : null
-  const clearingFDV = clearingPriceNum && supplyRaw ? (clearingPriceNum * supplyRaw) : null
+  const floor = floorQ96raw ? decodePrice(floorQ96raw) : null
+  const clearing = clearingQ96raw ? decodePrice(clearingQ96raw) : null
 
-  const formatUsd = (n: number) => n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${n.toLocaleString('en-US')}`
-  const formatEth = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K ETH` : `${n.toFixed(2)} ETH`
+  const floorFDV = floor && supplyRaw ? floor.decoded * supplyRaw : null
+  const clearingFDV = clearing && supplyRaw ? clearing.decoded * supplyRaw : null
+
+  const formatUsd = (n: number) => n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 
   // Total raised
   const raisedRaw = target.currencyRaised ? BigInt(target.currencyRaised) : null
   const raisedDivisor = 10n ** BigInt(currDecimals)
-  const raisedNum = raisedRaw ? Number(raisedRaw) / Number(raisedDivisor) : null
-
-  // requiredRaise is not exposed by the CCA contract — note this
-  const requiredRaise = null
-  const oversubRatio = null
 
   console.log(`\nPOST-MORTEM: ${target.name}`)
   console.log('='.repeat(70))
@@ -68,11 +73,56 @@ async function main() {
   console.log(`Token supply:       ${target.tokenSupply || '?'}`)
   console.log(`Currency:           ${target.currencySymbol || '?'}`)
   console.log()
-  console.log(`Floor price:        ${target.floorPrice || '?'} ${target.currencySymbol}/token`)
-  console.log(`Floor FDV:          ${floorFDV !== null ? formatUsd(floorFDV) : '? (supply or price unavailable)'}`)
-  console.log(`Clearing price:     ${target.clearingPrice || '?'} ${target.currencySymbol}/token`)
-  console.log(`Clearing FDV:       ${clearingFDV !== null ? formatUsd(clearingFDV) : '? (supply or price unavailable)'}`)
-  console.log(`Clearing vs floor:  ${target.clearingVsFloor || '?'}`)
+
+  // ─── FDV derivation (auditable) ──────────────────────────────────────
+  console.log(`FDV DERIVATION`)
+  console.log('-'.repeat(70))
+  console.log(`  tokenDecimals:     ${tokDecimals}`)
+  console.log(`  currencyDecimals:  ${currDecimals}`)
+  console.log(`  decimals shift:    ${shift} (token - currency)`)
+  console.log(`  totalSupply:       ${target.tokenSupply || '?'} tokens (on-chain ERC20.totalSupply)`)
+  console.log()
+  if (floor) {
+    console.log(`  FLOOR PRICE:`)
+    console.log(`    raw Q96:         ${floorQ96raw}`)
+    console.log(`    shifted (×10^${shift}): ${floor.shifted.toString()}`)
+    console.log(`    ÷ 2^96:         ${floor.decoded.toFixed(8)} ${target.currencySymbol}/token`)
+    console.log(`    FDV = ${floor.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString()} = ${floorFDV !== null ? formatUsd(floorFDV) : '?'}`)
+  }
+  console.log()
+  if (clearing) {
+    console.log(`  CLEARING PRICE:`)
+    console.log(`    raw Q96:         ${clearingQ96raw}`)
+    console.log(`    shifted (×10^${shift}): ${clearing.shifted.toString()}`)
+    console.log(`    ÷ 2^96:         ${clearing.decoded.toFixed(8)} ${target.currencySymbol}/token`)
+    console.log(`    FDV = ${clearing.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString()} = ${clearingFDV !== null ? formatUsd(clearingFDV) : '?'}`)
+  }
+  console.log()
+  console.log(`  Clearing vs floor: ${target.clearingVsFloor || '?'}`)
+
+  // Reconciliation check
+  if (clearingFDV !== null && supplyRaw) {
+    const reportedFDV = target.name === 'CAP' ? 106_000_000 : null
+    if (reportedFDV) {
+      const reconcilingSupply = Math.round(reportedFDV / clearing!.decoded)
+      console.log()
+      console.log(`  RECONCILIATION vs public $${(reportedFDV / 1e6).toFixed(0)}M FDV:`)
+      console.log(`    Our decode:      ${formatUsd(clearingFDV)} (using totalSupply = ${supplyRaw.toLocaleString()})`)
+      console.log(`    Public report:   ${formatUsd(reportedFDV)}`)
+      console.log(`    Gap:             ${formatUsd(Math.abs(clearingFDV - reportedFDV))} (${((clearingFDV / reportedFDV - 1) * 100).toFixed(1)}%)`)
+      console.log(`    Supply to match: ${reconcilingSupply.toLocaleString()} tokens at $${clearing!.decoded.toFixed(8)}/token`)
+      console.log(`    Ratio:           ${(reconcilingSupply / supplyRaw).toFixed(4)}x our on-chain totalSupply`)
+      const diff = reconcilingSupply - supplyRaw
+      if (Math.abs(diff) / supplyRaw < 0.01) {
+        console.log(`    Verdict:         Rounding difference — math is clean.`)
+      } else {
+        console.log(`    Verdict:         Public reporting uses a different supply assumption`)
+        console.log(`                     (likely circulating/allocated supply, not ERC20.totalSupply).`)
+      }
+    }
+  }
+  console.log('-'.repeat(70))
+
   console.log()
   console.log(`Total raised:       ${target.currencyRaisedFormatted || '?'}`)
   console.log(`Required raise:     ? (not exposed by CCA contract)`)
