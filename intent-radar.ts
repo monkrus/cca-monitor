@@ -10,6 +10,7 @@
 
 import * as dotenv from 'dotenv'
 import * as fs from 'fs'
+import { checkCrashLoop } from './shared.ts'
 dotenv.config()
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
@@ -174,6 +175,7 @@ async function pollFeeds() {
 
 // ─── Entry point ────────────────────────────────────────────────────────────
 async function main() {
+  await checkCrashLoop('cca-intent')
   console.log('CCA Intent Radar starting...')
   console.log(`Feeds: ${getFeeds().length}`)
   console.log(`Poll interval: ${POLL_INTERVAL_MS / 60000} min`)

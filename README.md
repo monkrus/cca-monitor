@@ -16,6 +16,16 @@ cp .env.example .env   # add RPC keys if you have them (optional)
 
 Public RPCs work out of the box. Dedicated keys (Alchemy, Infura, Ankr) give better rate limits for bid-event scanning.
 
+## Running (production)
+
+```bash
+npm run start:all   # starts watch + bot + intent via pm2
+npm run status      # check process health
+pm2 logs            # tail all logs
+```
+
+All three processes auto-restart on crash. See [RUNBOOK.md](RUNBOOK.md) for ops details.
+
 ## Scripts
 
 | Script | Command | Description |
@@ -27,8 +37,11 @@ Public RPCs work out of the box. Dedicated keys (Alchemy, Infura, Ankr) give bet
 | `profile` | `npm run profile [addr]` | Deep-dive a single bidder across all real auctions |
 | `postmortem` | `npm run postmortem [name]` | Full post-mortem stats for an auction (FDV derivation, cross-auction comparison) |
 | `charts` | `npm run charts` | Generate publication-ready PNGs to `charts/` via QuickChart API |
+| `backup` | `npm run backup` | Copy data/*.json to backups/YYYY-MM-DD/, keep 14 days |
+| `start:all` | `npm run start:all` | Start all long-running processes via pm2 |
+| `status` | `npm run status` | Show pm2 process status |
 
-Results are saved to `data/results.json`.
+Results are saved to `data/results.json` (version-controlled — commit after each new real auction).
 
 ## Output
 

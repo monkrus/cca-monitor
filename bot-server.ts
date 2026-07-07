@@ -12,6 +12,7 @@
 
 import * as dotenv from 'dotenv'
 import * as fs from 'fs'
+import { checkCrashLoop } from './shared.ts'
 dotenv.config()
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!
@@ -347,6 +348,7 @@ async function checkExpiries() {
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 async function main() {
+  await checkCrashLoop('cca-bot')
   console.log('CCA Monitor Bot Server starting...')
   console.log(`Tiers: ${Object.entries(TIERS).map(([k, t]) => `${t.label}=${t.stars}*`).join(', ')}`)
   console.log(`Premium channel: ${PREMIUM_CHANNEL_ID}`)

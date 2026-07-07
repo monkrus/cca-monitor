@@ -15,6 +15,7 @@ import { createPublicClient, http, parseAbiItem, defineChain } from 'viem'
 import { mainnet, base, arbitrum } from 'viem/chains'
 import * as fs from 'fs'
 import * as dotenv from 'dotenv'
+import { checkCrashLoop } from './shared.ts'
 dotenv.config()
 
 // ─── Unichain definition (not yet in viem) ──────────────────────────────────
@@ -933,6 +934,246 @@ async function sendHeartbeat() {
   console.log(`Heartbeat sent (${dateKey})`)
 }
 
+// ─── Weekly digest (Monday 9 UTC) ────────────────────────────────────────────
+let lastWeeklyDigest = ''
+
+async function sendWeeklyDigest() {
+  const now = new Date()
+  if (now.getUTCDay() !== 1) return // Monday only
+  if (now.getUTCHours() !== 9) return
+  const weekKey = now.toISOString().slice(0, 10)
+  if (weekKey === lastWeeklyDigest) return
+  lastWeeklyDigest = weekKey
+
+  const dmId = TELEGRAM_TARGETS.dm
+  if (!dmId) return
+
+  // Dataset stats
+  let totalAuctions = 0, realAuctions = 0
+  try {
+    const data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8'))
+    totalAuctions = data.auctions?.length || 0
+    realAuctions = data.auctions?.filter((a: any) => !a.isTest).length || 0
+  } catch {}
+
+  // Subscribers by tier
+  let subLine = '0'
+  try {
+    const subs = JSON.parse(fs.readFileSync('data/subscribers.json', 'utf-8')) as Array<{ tier?: string; expiresAt: string }>
+    const active = subs.filter(s => s.tier === 'lifetime' || new Date(s.expiresAt) >= now)
+    const byTier: Record<string, number> = {}
+    for (const s of active) byTier[s.tier || 'legacy'] = (byTier[s.tier || 'legacy'] || 0) + 1
+    subLine = `${active.length} (${Object.entries(byTier).map(([t, n]) => `${t}: ${n}`).join(', ')})`
+  } catch {}
+
+  // Public channel members
+  let publicMembers = 'n/a'
+  const publicId = TELEGRAM_TARGETS.public
+  const botToken = process.env.TELEGRAM_BOT_TOKEN
+  if (publicId && botToken) {
+    try {
+      const resp = await fetch(`https://api.telegram.org/bot${botToken}/getChatMemberCount`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: publicId }),
+      })
+      const data = await resp.json() as any
+      if (data.ok) publicMembers = String(data.result)
+    } catch {}
+  }
+
+  // Real auctions this week
+  const detDates = await backfillDetectionDates()
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const realDetections = Object.entries(detDates).filter(([, d]) => d !== 'unknown')
+  const thisWeek = realDetections.filter(([, d]) => d >= sevenDaysAgo).length
+
+  // Days since last real auction
+  const sortedDates = realDetections.map(([, d]) => d).sort().reverse()
+  const daysSinceLast = sortedDates.length > 0
+    ? Math.floor((Date.now() - new Date(sortedDates[0]).getTime()) / 86400000)
+    : -1
+
+  // Intent radar matches this week
+  let intentMatches = 0
+  try {
+    const seen = JSON.parse(fs.readFileSync('data/intent-seen.json', 'utf-8')) as string[]
+    intentMatches = seen.length // total seen, not per-week (no timestamps in seen file)
+  } catch {}
+
+  // Data files size
+  let dataSize = '?'
+  try {
+    const files = fs.readdirSync('data').filter(f => f.endsWith('.json'))
+    const totalBytes = files.reduce((s, f) => s + fs.statSync(`data/${f}`).size, 0)
+    dataSize = `${files.length} files, ${(totalBytes / 1024).toFixed(0)} KB`
+  } catch {}
+
+  const msg = [
+    `📊 <b>WEEKLY DIGEST</b> — ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+    ``,
+    `<b>Real auctions:</b> ${thisWeek} this week / ${realAuctions} total`,
+    `<b>Days since last real auction:</b> ${daysSinceLast >= 0 ? daysSinceLast : 'n/a'}`,
+    `<b>Dataset:</b> ${totalAuctions} auctions (${dataSize})`,
+    `<b>Subscribers:</b> ${subLine}`,
+    `<b>Public channel:</b> ${publicMembers} members`,
+    `<b>Intent radar:</b> ${intentMatches} total items tracked`,
+  ].join('\n')
+
+  await sendTelegramTo(dmId, msg)
+  console.log(`Weekly digest sent (${weekKey})`)
+}
+
+// ─── Weekly "State of CCA" public channel post (Wednesday 15 UTC) ────────────
+let lastStateCCA = ''
+
+const DID_YOU_KNOW_POOL = [
+  (real: any[]) => {
+    const best = real.filter(a => a.clearingVsFloor && !String(a.clearingVsFloor).includes('e+')).sort((a, b) => parseFloat(b.clearingVsFloor) - parseFloat(a.clearingVsFloor))[0]
+    return best ? `Highest clearing ratio: ${best.name} at ${best.clearingVsFloor} of floor` : null
+  },
+  (_real: any[], allAuctions: any[]) => {
+    const tests = allAuctions.filter((a: any) => a.isTest).length
+    const total = allAuctions.length
+    return total > 0 ? `${Math.round(tests / total * 100)}% of all CCA deployments were test auctions` : null
+  },
+  () => {
+    try {
+      const idx = JSON.parse(fs.readFileSync('data/bidder-index.json', 'utf-8'))
+      const repeat = idx.filter((e: any) => e.auctionCount >= 2).length
+      return `${repeat} addresses have bid in 2+ CCA auctions — the early repeat-bidder cohort`
+    } catch { return null }
+  },
+  (real: any[]) => {
+    const totalBids = real.reduce((s: number, a: any) => s + (a.totalBids || 0), 0)
+    return `${totalBids.toLocaleString()} total bids placed across all real CCA auctions`
+  },
+  (real: any[]) => {
+    const totalBidders = real.reduce((s: number, a: any) => s + (a.uniqueBidders || 0), 0)
+    return `${totalBidders.toLocaleString()} unique addresses have participated in CCA auctions`
+  },
+]
+
+async function sendStateCCA(dryRun = false) {
+  const now = new Date()
+  if (now.getUTCDay() !== 3) return // Wednesday only
+  if (now.getUTCHours() !== 15) return
+  const weekKey = now.toISOString().slice(0, 10)
+  if (weekKey === lastStateCCA) return
+
+  // Skip if there are active auctions (daily summary already covers it)
+  if (trackedAuctions.length > 0) return
+
+  lastStateCCA = weekKey
+
+  const publicId = TELEGRAM_TARGETS.public
+  if (!publicId && !dryRun) return
+
+  // Load data
+  let data: any = { auctions: [] }
+  try { data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8')) } catch {}
+  const allAuctions = data.auctions || []
+  const real = allAuctions.filter((a: any) => !a.isTest)
+
+  // Days since last real auction
+  const detDates = await backfillDetectionDates()
+  const sortedDates = Object.entries(detDates).filter(([, d]) => d !== 'unknown').map(([, d]) => d).sort().reverse()
+  const daysSinceLast = sortedDates.length > 0
+    ? Math.floor((Date.now() - new Date(sortedDates[0]).getTime()) / 86400000)
+    : -1
+
+  // Total raised (ETH equivalent — rough)
+  const totalBidders = real.reduce((s: number, a: any) => s + (a.uniqueBidders || 0), 0)
+
+  // Rotating "did you know"
+  const weekNum = Math.floor(Date.now() / (7 * 86400000))
+  const factFn = DID_YOU_KNOW_POOL[weekNum % DID_YOU_KNOW_POOL.length]
+  const fact = factFn(real, allAuctions)
+
+  const lines = [
+    `📊 <b>State of CCA</b>`,
+    ``,
+    `Real auctions: <b>${real.length}</b>`,
+    `Total dataset: <b>${allAuctions.length}</b> auctions (${real.length} real + ${allAuctions.length - real.length} test)`,
+    `Unique bidders (all-time): <b>${totalBidders.toLocaleString()}</b>`,
+    daysSinceLast >= 0 ? `Days since last real auction: <b>${daysSinceLast}</b>` : '',
+    ``,
+    fact ? `💡 <i>${fact}</i>` : '',
+    ``,
+    `🤖 Instant alerts: @cca_monitor_bot`,
+    `📂 github.com/monkrus/cca-monitor`,
+  ].filter(Boolean).join('\n')
+
+  if (dryRun) {
+    console.log(`[DRY RUN] State of CCA post:\n${lines}`)
+    return
+  }
+
+  await sendTelegramTo(publicId!, lines)
+  console.log(`State of CCA post sent (${weekKey})`)
+}
+
+// ─── Milestone posts ─────────────────────────────────────────────────────────
+const MILESTONES_FILE = 'data/posted-milestones.json'
+
+function loadMilestones(): string[] {
+  try {
+    if (fs.existsSync(MILESTONES_FILE)) return JSON.parse(fs.readFileSync(MILESTONES_FILE, 'utf-8'))
+  } catch {}
+  return []
+}
+
+function saveMilestones(m: string[]) {
+  fs.mkdirSync('data', { recursive: true })
+  fs.writeFileSync(MILESTONES_FILE, JSON.stringify(m, null, 2))
+}
+
+async function checkMilestones(dryRun = false) {
+  const publicId = TELEGRAM_TARGETS.public
+  if (!publicId && !dryRun) return
+
+  const posted = loadMilestones()
+  const newMilestones: string[] = []
+
+  // Real auction count milestones (every 5)
+  let data: any = { auctions: [] }
+  try { data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8')) } catch {}
+  const realCount = (data.auctions || []).filter((a: any) => !a.isTest).length
+  const auctionMilestone = Math.floor(realCount / 5) * 5
+  if (auctionMilestone >= 5) {
+    const key = `auctions-${auctionMilestone}`
+    if (!posted.includes(key)) {
+      const text = `🎯 <b>Milestone:</b> ${auctionMilestone} real CCA auctions tracked!\n\n📂 github.com/monkrus/cca-monitor`
+      if (dryRun) console.log(`[DRY RUN] Milestone: ${key}\n${text}`)
+      else await sendTelegramTo(publicId!, text)
+      newMilestones.push(key)
+    }
+  }
+
+  // Bidder index milestones (every 5000)
+  try {
+    const idx = JSON.parse(fs.readFileSync('data/bidder-index.json', 'utf-8'))
+    const bidderMilestone = Math.floor(idx.length / 5000) * 5000
+    if (bidderMilestone >= 5000) {
+      const key = `bidders-${bidderMilestone}`
+      if (!posted.includes(key)) {
+        const text = `🎯 <b>Milestone:</b> ${bidderMilestone.toLocaleString()} unique addresses in the CCA bidder index!\n\n📂 github.com/monkrus/cca-monitor`
+        if (dryRun) console.log(`[DRY RUN] Milestone: ${key}\n${text}`)
+        else await sendTelegramTo(publicId!, text)
+        newMilestones.push(key)
+      }
+    }
+  } catch {}
+
+  if (newMilestones.length > 0) {
+    if (!dryRun) {
+      const all = [...posted, ...newMilestones]
+      saveMilestones(all)
+    }
+    console.log(`${dryRun ? '[DRY RUN] ' : ''}Posted ${newMilestones.length} milestone(s): ${newMilestones.join(', ')}`)
+  }
+}
+
 // ─── Whale bid alert helper ─────────────────────────────────────────────────
 const WHALE_THRESHOLD_ETH = 10n * 10n ** 18n       // 10 ETH
 const WHALE_THRESHOLD_USDC = 25000n * 10n ** 6n     // 25,000 USDC
@@ -1293,6 +1534,7 @@ async function pollBids() {
 
 // ─── LIVE MONITOR: Poll for new auctions across all chains (no filters) ─────
 async function watchForNewAuctions() {
+  await checkCrashLoop('cca-watch')
   console.log('\nStarting new auction monitor...')
   console.log('Watching factory on: Ethereum, Base, Arbitrum, Unichain')
   console.log('Factory address:', FACTORY_ADDRESS)
@@ -1404,7 +1646,7 @@ async function watchForNewAuctions() {
   const priceInterval = setInterval(pollPrices, PRICE_CHECK_INTERVAL)
   const endIntelInterval = setInterval(checkEndAlerts, 5 * 60_000) // check every 5 min
   const alertFlushInterval = setInterval(flushPendingAlerts, 60_000)
-  const dailyInterval = setInterval(async () => { await sendDailySummary(); await sendHeartbeat(); }, 60_000)
+  const dailyInterval = setInterval(async () => { await sendDailySummary(); await sendHeartbeat(); await sendWeeklyDigest(); await sendStateCCA(); await checkMilestones(); }, 60_000)
 
   // Init graduated token price tracking
   console.log('\nInitializing token price tracking...')
@@ -1457,6 +1699,15 @@ async function watchForNewAuctions() {
 async function main() {
   const mode = process.argv[2] || 'analyze'
   const includeTests = process.argv.includes('--include-tests')
+  const dryRun = process.argv.includes('--dry-run')
+
+  if (dryRun) {
+    console.log('DRY RUN — printing scheduled posts without sending\n')
+    await sendStateCCA(true)
+    await checkMilestones(true)
+    console.log('\nDone.')
+    return
+  }
 
   if (mode === 'watch') {
     await watchForNewAuctions()

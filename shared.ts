@@ -4,6 +4,7 @@
 
 import { createPublicClient, http, parseAbiItem, defineChain } from 'viem'
 import { mainnet, base, arbitrum } from 'viem/chains'
+import * as fs from 'fs'
 import * as dotenv from 'dotenv'
 dotenv.config()
 
@@ -160,6 +161,57 @@ export async function getLogsChunked(
   console.log(`  Scan completed via public RPC fallback`)
   if (wasCapped) console.log(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
   return { logs, wasCapped }
+}
+
+// ─── Crash-loop alarm ────────────────────────────────────────────────────────
+const CRASH_LOOP_WINDOW_MS = 10 * 60 * 1000 // 10 minutes
+const CRASH_LOOP_THRESHOLD = 5
+const CRASH_LOOP_THROTTLE_MS = 6 * 60 * 60 * 1000 // 6 hours
+
+export async function checkCrashLoop(processName: string) {
+  fs.mkdirSync('logs', { recursive: true })
+  const startsFile = `logs/starts-${processName}.log`
+  const alertFile = `logs/last-crash-alert-${processName}.txt`
+
+  // Append this start
+  const now = Date.now()
+  fs.appendFileSync(startsFile, `${now}\n`)
+
+  // Read recent starts
+  const lines = fs.readFileSync(startsFile, 'utf-8').trim().split('\n').filter(Boolean)
+  const cutoff = now - CRASH_LOOP_WINDOW_MS
+  const recentStarts = lines.map(Number).filter(t => t > cutoff)
+
+  if (recentStarts.length < CRASH_LOOP_THRESHOLD) return
+
+  // Check throttle
+  let lastAlert = 0
+  try { lastAlert = parseInt(fs.readFileSync(alertFile, 'utf-8').trim()) || 0 } catch {}
+  if (now - lastAlert < CRASH_LOOP_THROTTLE_MS) return
+
+  // Send alarm
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  const chatId = process.env.TELEGRAM_CHAT_ID
+  if (!token || !chatId) {
+    console.error(`⚠️ ${processName} is crash-looping (${recentStarts.length} starts in 10min) — no Telegram configured`)
+    return
+  }
+
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: `⚠️ <b>${processName}</b> is crash-looping — ${recentStarts.length} starts in the last 10 minutes. Check logs.`,
+        parse_mode: 'HTML',
+      }),
+    })
+    fs.writeFileSync(alertFile, String(now))
+    console.log(`Crash-loop alarm sent for ${processName}`)
+  } catch (err: any) {
+    console.error(`Failed to send crash-loop alarm: ${err.message}`)
+  }
 }
 
 // ─── Q96 math ────────────────────────────────────────────────────────────────

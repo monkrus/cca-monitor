@@ -12,6 +12,9 @@
     "profile": "npx tsx bidder-profile.ts",
     "postmortem": "npx tsx postmortem.ts",
     "charts": "npx tsx charts.ts",
+    "backup": "npx tsx backup.ts",
+    "start:all": "pm2 start ecosystem.config.cjs",
+    "status": "pm2 status",
     "test": "npx tsx test.ts"
   },
   "dependencies": {
