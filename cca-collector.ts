@@ -188,12 +188,39 @@ const TELEGRAM_TARGETS = {
 }
 const PUBLIC_DELAY_MS = 30 * 60 * 1000 // 30-minute delay for public channel
 
+// ─── Routing table (single source of truth for all alert routing) ───────────
+type AlertType = 'auction' | 'bid-update' | 'whale-bid' | 'end-intel' | 'auction-end'
+  | 'daily-summary' | 'price-alert'
+  | 'heartbeat' | 'weekly-digest' | 'milestone' | 'state-of-cca'
+
+interface RouteSpec {
+  dm: boolean
+  premium: boolean
+  publicDelayed: boolean
+  publicImmediate: boolean
+}
+
+export const ROUTE_TABLE: Record<AlertType, RouteSpec> = {
+  'auction':        { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'bid-update':     { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'whale-bid':      { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'end-intel':      { dm: false, premium: true,  publicDelayed: false, publicImmediate: false },
+  'auction-end':    { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'daily-summary':  { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'price-alert':    { dm: false, premium: true,  publicDelayed: false, publicImmediate: false },
+  'heartbeat':      { dm: true,  premium: false, publicDelayed: false, publicImmediate: false },
+  'weekly-digest':  { dm: true,  premium: false, publicDelayed: false, publicImmediate: false },
+  'milestone':      { dm: false, premium: false, publicDelayed: false, publicImmediate: true  },
+  'state-of-cca':   { dm: false, premium: false, publicDelayed: false, publicImmediate: true  },
+}
+
 // ─── Persistent public alert queue ──────────────────────────────────────────
 const PENDING_ALERTS_FILE = 'data/pending-public-alerts.json'
 
 interface PendingAlert {
   sendAt: string
   text: string
+  queuedAt: string
 }
 
 function loadPendingAlerts(): PendingAlert[] {
@@ -208,6 +235,16 @@ function savePendingAlerts(alerts: PendingAlert[]) {
   fs.writeFileSync(PENDING_ALERTS_FILE, JSON.stringify(alerts, null, 2))
 }
 
+function formatDelay(ms: number): string {
+  if (ms <= 0) return '30 min'
+  const mins = Math.round(ms / 60_000)
+  if (mins < 60) return `${mins} min`
+  const hours = Math.floor(mins / 60)
+  const remainMins = mins % 60
+  if (remainMins === 0) return `${hours}h`
+  return `${hours}h ${remainMins}m`
+}
+
 async function flushPendingAlerts() {
   const alerts = loadPendingAlerts()
   if (!alerts.length) return
@@ -217,7 +254,11 @@ async function flushPendingAlerts() {
   const publicId = TELEGRAM_TARGETS.public
   if (publicId && ready.length > 0) {
     for (const alert of ready) {
-      await sendTelegramTo(publicId, alert.text)
+      const queuedTime = alert.queuedAt ? new Date(alert.queuedAt).getTime() : 0
+      const actualDelayMs = queuedTime ? now - queuedTime : 0
+      const delayStr = formatDelay(actualDelayMs)
+      const footerText = `\n\n⏱ <i>Delayed ${delayStr}. Get instant alerts:</i> <b>@cca_monitor_bot</b>`
+      await sendTelegramTo(publicId, alert.text + footerText)
     }
     savePendingAlerts(remaining)
     console.log(`Flushed ${ready.length} pending public alert(s)`)
@@ -238,17 +279,23 @@ async function sendTelegramTo(chatId: string, text: string) {
   }
 }
 
-async function sendTelegram(text: string) {
-  // Instant: DM + premium channel
-  const targets = [TELEGRAM_TARGETS.dm, TELEGRAM_TARGETS.premium].filter(Boolean) as string[]
-  await Promise.all(targets.map(id => sendTelegramTo(id, text)))
+/** Single routing function — every alert goes through here. */
+async function routeAlert(alertType: AlertType, text: string) {
+  const route = ROUTE_TABLE[alertType]
+  const instantTargets: string[] = []
+  if (route.dm && TELEGRAM_TARGETS.dm) instantTargets.push(TELEGRAM_TARGETS.dm)
+  if (route.premium && TELEGRAM_TARGETS.premium) instantTargets.push(TELEGRAM_TARGETS.premium)
+  if (route.publicImmediate && TELEGRAM_TARGETS.public) instantTargets.push(TELEGRAM_TARGETS.public)
+  if (instantTargets.length > 0) await Promise.all(instantTargets.map(id => sendTelegramTo(id, text)))
 
-  // Delayed: public channel (persisted to survive restarts)
-  const publicId = TELEGRAM_TARGETS.public
-  if (publicId) {
-    const publicText = text + `\n\n⏱ <i>This alert was delayed 30 min. Get instant alerts:</i> <b>@cca_monitor_bot</b>`
+  if (route.publicDelayed && TELEGRAM_TARGETS.public) {
+    const now = new Date()
     const alerts = loadPendingAlerts()
-    alerts.push({ sendAt: new Date(Date.now() + PUBLIC_DELAY_MS).toISOString(), text: publicText })
+    alerts.push({
+      sendAt: new Date(now.getTime() + PUBLIC_DELAY_MS).toISOString(),
+      text,
+      queuedAt: now.toISOString(),
+    })
     savePendingAlerts(alerts)
   }
 }
@@ -591,6 +638,8 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
 }
 
 // ─── Graduated token price tracker ──────────────────────────────────────────
+const TRACK_POST_GRADUATION = process.env.TRACK_POST_GRADUATION === 'true'
+
 interface TrackedToken {
   address: string
   symbol: string
@@ -604,11 +653,14 @@ interface TrackedToken {
   volume24h?: string
   poolAddress?: string
   lastChecked?: string
+  lastAlertAt?: string      // ISO — 24h cooldown
+  lastAlertBand?: number    // last threshold band that triggered (-10, -20, -30)
 }
 
 const trackedTokens: TrackedToken[] = []
 const PRICE_CHECK_INTERVAL = 10 * 60 * 1000 // check prices every 10 min
-const PRICE_CHANGE_ALERT_THRESHOLD = 10 // alert on >10% moves
+const PRICE_ALERT_BANDS = [-10, -20, -30] // threshold bands
+const PRICE_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000 // 24h cooldown per token
 
 function loadTrackedTokens(): TrackedToken[] {
   try {
@@ -640,7 +692,17 @@ async function fetchTokenPrice(address: string, chain: string): Promise<{ priceU
   } catch { return null }
 }
 
+function getPriceAlertBand(change: number): number | null {
+  // Returns the most severe band crossed (e.g. -25% → -20 band)
+  for (let i = PRICE_ALERT_BANDS.length - 1; i >= 0; i--) {
+    if (change <= PRICE_ALERT_BANDS[i]) return PRICE_ALERT_BANDS[i]
+  }
+  return null
+}
+
 async function pollPrices() {
+  if (!TRACK_POST_GRADUATION) return
+
   for (const token of trackedTokens) {
     const price = await fetchTokenPrice(token.address, token.chain)
     if (!price) continue
@@ -652,24 +714,37 @@ async function pollPrices() {
     token.poolAddress = price.poolAddress
     token.lastChecked = new Date().toISOString()
 
-    // Alert on big price moves
-    if (prevPrice && Math.abs(parseFloat(price.change24h)) >= PRICE_CHANGE_ALERT_THRESHOLD) {
-      const direction = parseFloat(price.change24h) > 0 ? '📈' : '📉'
-      await sendTelegram([
-        `${direction} <b>${token.symbol} Price Alert</b>`,
-        ``,
-        `<b>Price:</b> $${parseFloat(price.priceUsd).toFixed(6)}`,
-        `<b>24h change:</b> ${price.change24h}%`,
-        `<b>24h volume:</b> $${parseFloat(price.volume24h).toLocaleString('en-US')}`,
-        ``,
-        `<i>CCA auction: ${token.auctionName}</i>`,
-      ].join('\n'))
-    }
+    if (!prevPrice) continue
+
+    const change = parseFloat(price.change24h)
+    const band = getPriceAlertBand(change)
+    if (!band) continue
+
+    // Check cooldown: 24h unless a new (more severe) band is crossed
+    const now = Date.now()
+    const lastAlert = token.lastAlertAt ? new Date(token.lastAlertAt).getTime() : 0
+    const withinCooldown = (now - lastAlert) < PRICE_ALERT_COOLDOWN_MS
+    const newBand = band !== token.lastAlertBand && band < (token.lastAlertBand ?? 0)
+    if (withinCooldown && !newBand) continue
+
+    const direction = change > 0 ? '📈' : '📉'
+    await routeAlert('price-alert', [
+      `${direction} <b>${token.symbol} Price Alert</b>`,
+      ``,
+      `<b>Price:</b> $${parseFloat(price.priceUsd).toFixed(6)}`,
+      `<b>24h change:</b> ${price.change24h}%`,
+      `<b>24h volume:</b> $${parseFloat(price.volume24h).toLocaleString('en-US')}`,
+    ].join('\n'))
+
+    token.lastAlertAt = new Date().toISOString()
+    token.lastAlertBand = band
   }
   saveTrackedTokens()
 }
 
 async function initTokenTracking() {
+  if (!TRACK_POST_GRADUATION) return
+
   // Load saved tokens
   const saved = loadTrackedTokens()
 
@@ -753,8 +828,8 @@ async function sendDailySummary() {
     lines.push(``)
   }
 
-  // Graduated token prices
-  if (trackedTokens.length > 0) {
+  // Graduated token prices (only when feature is enabled)
+  if (TRACK_POST_GRADUATION && trackedTokens.length > 0) {
     lines.push(`<b>📊 Graduated Token Prices:</b>`)
     for (const t of trackedTokens) {
       if (!t.lastPriceUsd || t.lastPriceUsd === '0') continue
@@ -766,20 +841,20 @@ async function sendDailySummary() {
     lines.push(``)
   }
 
-  // Stats
+  // Stats (filter isTest from public-facing counts)
   const resultsFile = 'data/results.json'
   if (fs.existsSync(resultsFile)) {
     try {
       const results = JSON.parse(fs.readFileSync(resultsFile, 'utf-8'))
-      const total = results.auctions?.length || 0
-      const graduated = results.auctions?.filter((a: any) => a.graduated).length || 0
-      lines.push(`<b>📈 All-time:</b> ${total} auctions tracked, ${graduated} graduated`)
+      const real = results.auctions?.filter((a: any) => !a.isTest) || []
+      const graduated = real.filter((a: any) => a.graduated).length
+      lines.push(`<b>📈 All-time:</b> ${real.length} auctions tracked, ${graduated} graduated`)
     } catch {}
   }
 
   lines.push(``, `<i>Get instant alerts: @cca_monitor_bot → /subscribe</i>`)
 
-  await sendTelegram(lines.join('\n'))
+  await routeAlert('daily-summary', lines.join('\n'))
   console.log(`Daily summary sent (${dateKey})`)
 }
 
@@ -851,10 +926,14 @@ async function sendHeartbeat() {
   const dmId = TELEGRAM_TARGETS.dm
   if (!dmId) return
 
-  let totalAuctions = 0
+  let totalAuctions = 0, realGraduated = 0, testGraduated = 0
   try {
     const data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8'))
     totalAuctions = data.auctions?.length || 0
+    const real = (data.auctions || []).filter((a: any) => !a.isTest)
+    const test = (data.auctions || []).filter((a: any) => a.isTest)
+    realGraduated = real.filter((a: any) => a.graduated).length
+    testGraduated = test.filter((a: any) => a.graduated).length
   } catch {}
 
   const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain']
@@ -925,12 +1004,13 @@ async function sendHeartbeat() {
     `<b>Active auctions:</b> ${trackedAuctions.length}`,
     `<b>Total in dataset:</b> ${totalAuctions}`,
     `<b>Real auctions (all time):</b> ${totalReal}`,
+    `<b>Graduated:</b> ${realGraduated} real, ${testGraduated} test`,
     `<b>Real auctions (trailing 30d):</b> ${trailing30d}`,
     ...subLines,
     publicMembers ? `<b>Public channel members:</b> ${publicMembers.split(': ')[1]}` : '',
   ].filter(Boolean).join('\n')
 
-  await sendTelegramTo(dmId, msg)
+  await routeAlert('heartbeat', msg)
   console.log(`Heartbeat sent (${dateKey})`)
 }
 
@@ -1020,7 +1100,7 @@ async function sendWeeklyDigest() {
     `<b>Intent radar:</b> ${intentMatches} total items tracked`,
   ].join('\n')
 
-  await sendTelegramTo(dmId, msg)
+  await routeAlert('weekly-digest', msg)
   console.log(`Weekly digest sent (${weekKey})`)
 }
 
@@ -1109,7 +1189,7 @@ async function sendStateCCA(dryRun = false) {
     return
   }
 
-  await sendTelegramTo(publicId!, lines)
+  await routeAlert('state-of-cca', lines)
   console.log(`State of CCA post sent (${weekKey})`)
 }
 
@@ -1145,7 +1225,7 @@ async function checkMilestones(dryRun = false) {
     if (!posted.includes(key)) {
       const text = `🎯 <b>Milestone:</b> ${auctionMilestone} real CCA auctions tracked!\n\n📂 github.com/monkrus/cca-monitor`
       if (dryRun) console.log(`[DRY RUN] Milestone: ${key}\n${text}`)
-      else await sendTelegramTo(publicId!, text)
+      else await routeAlert('milestone', text)
       newMilestones.push(key)
     }
   }
@@ -1159,7 +1239,7 @@ async function checkMilestones(dryRun = false) {
       if (!posted.includes(key)) {
         const text = `🎯 <b>Milestone:</b> ${bidderMilestone.toLocaleString()} unique addresses in the CCA bidder index!\n\n📂 github.com/monkrus/cca-monitor`
         if (dryRun) console.log(`[DRY RUN] Milestone: ${key}\n${text}`)
-        else await sendTelegramTo(publicId!, text)
+        else await routeAlert('milestone', text)
         newMilestones.push(key)
       }
     }
@@ -1394,20 +1474,21 @@ async function checkEndAlerts() {
       auction.currencyRaised = (ok(raisedResult) as bigint) ?? auction.currencyRaised
     } catch {}
 
-    // 24h alert
+    // 24h alert — premium instant, public teaser delayed 6h
     if (hoursLeft <= 24 && hoursLeft > 1 && !sent[key].h24) {
       const premiumText = buildEndIntel(auction, Math.round(hoursLeft), true)
-      // Premium + DM: instant with full intel
-      const targets = [TELEGRAM_TARGETS.dm, TELEGRAM_TARGETS.premium].filter(Boolean) as string[]
-      await Promise.all(targets.map(id => sendTelegramTo(id, premiumText)))
+      await routeAlert('end-intel', premiumText)
 
-      // Public: teaser without ratio, delayed 6h
+      // Public: teaser without clearing ratio, delayed 6h
       const publicId = TELEGRAM_TARGETS.public
       if (publicId) {
         const teaser = buildEndIntel(auction, Math.round(hoursLeft), false)
-          + `\n\n⏱ <i>Delayed 6h. Get clearing ratio + instant alerts:</i> <b>@cca_monitor_bot</b>`
         const alerts = loadPendingAlerts()
-        alerts.push({ sendAt: new Date(Date.now() + END_ALERT_PUBLIC_DELAY_MS).toISOString(), text: teaser })
+        alerts.push({
+          sendAt: new Date(Date.now() + END_ALERT_PUBLIC_DELAY_MS).toISOString(),
+          text: teaser,
+          queuedAt: new Date().toISOString(),
+        })
         savePendingAlerts(alerts)
       }
 
@@ -1416,12 +1497,10 @@ async function checkEndAlerts() {
       console.log(`  End intel (24h) sent for ${auction.tokenSymbol || key}`)
     }
 
-    // 1h alert
+    // 1h alert — premium only
     if (hoursLeft <= 1 && hoursLeft > 0 && !sent[key].h1) {
       const premiumText = buildEndIntel(auction, 1, true)
-      const targets = [TELEGRAM_TARGETS.dm, TELEGRAM_TARGETS.premium].filter(Boolean) as string[]
-      await Promise.all(targets.map(id => sendTelegramTo(id, premiumText)))
-      // No public teaser for 1h — premium only
+      await routeAlert('end-intel', premiumText)
 
       sent[key].h1 = true
       changed = true
@@ -1458,7 +1537,7 @@ async function pollBids() {
         const raised = `${whole.toLocaleString('en-US')}.${frac} ${auction.currencySymbol}`
 
         const label = auction.tokenSymbol || auction.address.slice(0, 10)
-        await sendTelegram([
+        await routeAlert('auction-end', [
           `🏁 <b>${label} Auction ENDED</b>`,
           ``,
           `<b>Result:</b> ${status}`,
@@ -1497,7 +1576,7 @@ async function pollBids() {
           const frac = (BigInt(amount) % divisor).toString().padStart(auction.currencyDecimals, '0').slice(0, 2)
           const amtStr = `${whole.toLocaleString('en-US')}.${frac} ${auction.currencySymbol}`
           const label = auction.tokenSymbol || auction.address.slice(0, 10)
-          await sendTelegram([
+          await routeAlert('whale-bid', [
             `🐋 <b>Whale Bid — ${label}</b>`,
             ``,
             `<b>Amount:</b> ${amtStr}`,
@@ -1522,7 +1601,7 @@ async function pollBids() {
       // Send Telegram update every N new bids
       const newBidsSinceAlert = auction.totalBids - auction.lastAlertBids
       if (newBidsSinceAlert >= BID_ALERT_INTERVAL) {
-        await sendTelegram(formatBidUpdate(auction))
+        await routeAlert('bid-update', formatBidUpdate(auction))
         auction.lastAlertBids = auction.totalBids
         console.log(`  Bid update sent for ${auction.tokenSymbol || auction.address}: ${auction.totalBids} bids, ${auction.uniqueBidders.size} bidders`)
       }
@@ -1619,7 +1698,7 @@ async function watchForNewAuctions() {
 
           // Send Telegram alert
           const alertText = formatTelegramAlert(detection, result)
-          await sendTelegram(alertText)
+          await routeAlert('auction', alertText)
           console.log('  Telegram alert sent')
 
           // Start tracking bids on this new auction

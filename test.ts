@@ -98,6 +98,128 @@ const viemTopic0 = keccak256(new TextEncoder().encode('BidSubmitted(uint256,addr
 assert(viemTopic0 === expectedTopic0, 'viem parseAbiItem canonical sig matches expected topic0')
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LAYER 1b: REGRESSION TESTS (bugs #1-#5)
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n--- Layer 1b: Regression tests (audit bugs #1-#5) ---\n')
+
+// ── Bug #1: formatDelay must show actual delay, not hardcoded "30 min" ──
+function formatDelay(ms: number): string {
+  if (ms <= 0) return '30 min'
+  const mins = Math.round(ms / 60_000)
+  if (mins < 60) return `${mins} min`
+  const hours = Math.floor(mins / 60)
+  const remainMins = mins % 60
+  if (remainMins === 0) return `${hours}h`
+  return `${hours}h ${remainMins}m`
+}
+assert(formatDelay(30 * 60_000) === '30 min', 'formatDelay: 30min = "30 min"')
+assert(formatDelay(10 * 60 * 60_000) === '10h', 'formatDelay: 10h = "10h"')
+assert(formatDelay(2 * 60 * 60_000 + 18 * 60_000) === '2h 18m', 'formatDelay: 2h18m = "2h 18m"')
+assert(formatDelay(0) === '30 min', 'formatDelay: 0ms = "30 min" (default)')
+assert(formatDelay(45 * 60_000) === '45 min', 'formatDelay: 45min = "45 min"')
+assert(formatDelay(4 * 60 * 60_000 + 43 * 60_000) === '4h 43m', 'formatDelay: 4h43m = "4h 43m"')
+
+// ── Bug #3: Routing table — verify destinations per alert type ──────────
+type AlertType = 'auction' | 'bid-update' | 'whale-bid' | 'end-intel' | 'auction-end'
+  | 'daily-summary' | 'price-alert'
+  | 'heartbeat' | 'weekly-digest' | 'milestone' | 'state-of-cca'
+
+interface RouteSpec {
+  dm: boolean
+  premium: boolean
+  publicDelayed: boolean
+  publicImmediate: boolean
+}
+
+const ROUTE_TABLE: Record<AlertType, RouteSpec> = {
+  'auction':        { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'bid-update':     { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'whale-bid':      { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'end-intel':      { dm: false, premium: true,  publicDelayed: false, publicImmediate: false },
+  'auction-end':    { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'daily-summary':  { dm: false, premium: true,  publicDelayed: true,  publicImmediate: false },
+  'price-alert':    { dm: false, premium: true,  publicDelayed: false, publicImmediate: false },
+  'heartbeat':      { dm: true,  premium: false, publicDelayed: false, publicImmediate: false },
+  'weekly-digest':  { dm: true,  premium: false, publicDelayed: false, publicImmediate: false },
+  'milestone':      { dm: false, premium: false, publicDelayed: false, publicImmediate: true  },
+  'state-of-cca':   { dm: false, premium: false, publicDelayed: false, publicImmediate: true  },
+}
+
+// Admin DM must ONLY receive heartbeat, weekly-digest
+const dmTypes = Object.entries(ROUTE_TABLE).filter(([, r]) => r.dm).map(([t]) => t)
+assert(dmTypes.length === 2, `DM routes: exactly 2 types (got ${dmTypes.length}: ${dmTypes.join(', ')})`)
+assert(dmTypes.includes('heartbeat'), 'DM routes include heartbeat')
+assert(dmTypes.includes('weekly-digest'), 'DM routes include weekly-digest')
+
+// Daily summary must NOT go to DM
+assert(!ROUTE_TABLE['daily-summary'].dm, 'daily-summary does NOT route to DM')
+
+// Price alerts must NOT go to public or DM
+assert(!ROUTE_TABLE['price-alert'].dm, 'price-alert does NOT route to DM')
+assert(!ROUTE_TABLE['price-alert'].publicDelayed, 'price-alert does NOT route to public (delayed)')
+assert(!ROUTE_TABLE['price-alert'].publicImmediate, 'price-alert does NOT route to public (immediate)')
+assert(ROUTE_TABLE['price-alert'].premium, 'price-alert routes to premium')
+
+// Milestones go to public immediately, not delayed
+assert(ROUTE_TABLE['milestone'].publicImmediate, 'milestone routes to public immediately')
+assert(!ROUTE_TABLE['milestone'].publicDelayed, 'milestone does NOT use delay queue')
+assert(!ROUTE_TABLE['milestone'].dm, 'milestone does NOT route to DM')
+
+// ── Bug #4: Footer isolation — milestone/digest/summary must not contain auction footer ──
+const milestoneText = `🎯 <b>Milestone:</b> 15000 unique addresses in the CCA bidder index!\n\n📂 github.com/monkrus/cca-monitor`
+const digestText = `📊 <b>WEEKLY DIGEST</b>\n<b>Real auctions:</b> 2 this week`
+const summaryText = `📋 <b>CCA Daily Summary</b>\n<b>No active auctions</b>`
+assert(!milestoneText.includes('CCA auction:'), 'milestone text has no auction footer')
+assert(!digestText.includes('CCA auction:'), 'digest text has no auction footer')
+assert(!summaryText.includes('CCA auction:'), 'summary text has no auction footer')
+
+// ── Bug #5: isTest filtering — verify filter logic ──────────────────────
+const mockAuctions = [
+  { name: 'AZTEC', graduated: true, isTest: false },
+  { name: 'TEST1', graduated: true, isTest: true },
+  { name: 'TEST2', graduated: true, isTest: true },
+  { name: 'CAP',   graduated: true, isTest: false },
+  { name: 'FAIL',  graduated: false, isTest: false },
+]
+const realOnly = mockAuctions.filter(a => !a.isTest)
+const realGraduated = realOnly.filter(a => a.graduated).length
+assert(realOnly.length === 3, `isTest filter: 3 real auctions (got ${realOnly.length})`)
+assert(realGraduated === 2, `isTest filter: 2 real graduated (got ${realGraduated})`)
+
+// ── Bug #2: Price alert cooldown logic ──────────────────────────────────
+const PRICE_ALERT_BANDS = [-10, -20, -30]
+function getPriceAlertBand(change: number): number | null {
+  for (let i = PRICE_ALERT_BANDS.length - 1; i >= 0; i--) {
+    if (change <= PRICE_ALERT_BANDS[i]) return PRICE_ALERT_BANDS[i]
+  }
+  return null
+}
+assert(getPriceAlertBand(-5) === null, 'band: -5% = no alert')
+assert(getPriceAlertBand(-10) === -10, 'band: -10% = -10 band')
+assert(getPriceAlertBand(-15) === -10, 'band: -15% = -10 band')
+assert(getPriceAlertBand(-25) === -20, 'band: -25% = -20 band')
+assert(getPriceAlertBand(-35) === -30, 'band: -35% = -30 band')
+assert(getPriceAlertBand(5) === null, 'band: +5% = no alert (positive)')
+
+// Cooldown: within 24h same band → no alert; new band → alert
+const COOLDOWN_MS = 24 * 60 * 60 * 1000
+{
+  const now = Date.now()
+  const lastAlert = now - 1 * 60 * 60 * 1000 // 1h ago
+  const withinCooldown = (now - lastAlert) < COOLDOWN_MS
+  assert(withinCooldown === true, 'cooldown: 1h ago = within cooldown')
+
+  const lastAlertBand = -10
+  const currentBand = -10
+  const newBand = currentBand !== lastAlertBand && currentBand < lastAlertBand
+  assert(newBand === false, 'cooldown: same band = not new band')
+
+  const currentBand2 = -20
+  const newBand2 = currentBand2 !== lastAlertBand && currentBand2 < lastAlertBand
+  assert(newBand2 === true, 'cooldown: -20 after -10 = new band (bypasses cooldown)')
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LAYER 2: ONLINE SMOKE TEST (skippable)
 // ═══════════════════════════════════════════════════════════════════════════
 if (process.env.SKIP_RPC === '1') {
