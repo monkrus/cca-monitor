@@ -219,6 +219,44 @@ const COOLDOWN_MS = 24 * 60 * 60 * 1000
   assert(newBand2 === true, 'cooldown: -20 after -10 = new band (bypasses cooldown)')
 }
 
+// ── Bug #2 addendum: cooldown reset after recovery ──────────────────────
+{
+  // Simulate: drop to -10 band, recover to -5 (no band), drop again to -12 (band -10)
+  let lastBand: number | undefined = -10
+  let lastAlertTime: string | undefined = new Date().toISOString()
+
+  // Price recovers above all thresholds (change = -5, no band)
+  const recoveryBand = getPriceAlertBand(-5)
+  if (!recoveryBand && lastBand) {
+    lastBand = undefined
+    lastAlertTime = undefined
+  }
+  assert(lastBand === undefined, 'recovery: band reset to undefined after price recovers')
+  assert(lastAlertTime === undefined, 'recovery: alert time reset after price recovers')
+
+  // Now price drops again to -12 (band -10) — should fire because state was reset
+  const newDropBand = getPriceAlertBand(-12)
+  const shouldFire = newDropBand !== null && (!lastBand || newDropBand <= lastBand)
+  assert(shouldFire === true, 'recovery: re-entry to -10 band fires after recovery')
+}
+
+// ── Fix #1: Near-zero floor guard ───────────────────────────────────────
+{
+  // wOCT floor Q96 ≈ 2^32 = effective zero → ratio is astronomically high
+  const woctFloor = 4294967300n // ~2^32
+  const woctClearing = 978959564890993n // actual wOCT clearing Q96
+  const ratio = Number(woctClearing * 10000n / woctFloor) / 100
+  const capped = ratio > 99999 ? 'n/a (near-zero floor)' : `${ratio.toFixed(1)}%`
+  assert(capped === 'n/a (near-zero floor)', `near-zero floor guard: wOCT ratio capped (was ${ratio.toFixed(0)}%)`)
+
+  // Normal ratio should pass through
+  const capFloorBig = BigInt('594211218857000')
+  const capClearBig = BigInt('843779930776940')
+  const capRatio = Number(capClearBig * 10000n / capFloorBig) / 100
+  const capCapped = capRatio > 99999 ? 'n/a (near-zero floor)' : `${capRatio.toFixed(1)}%`
+  assert(capCapped === '142.0%', `normal ratio passthrough: CAP = ${capCapped}`)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // LAYER 2: ONLINE SMOKE TEST (skippable)
 // ═══════════════════════════════════════════════════════════════════════════

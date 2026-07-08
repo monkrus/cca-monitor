@@ -34,8 +34,8 @@ async function getDurationFromBlocks(chain: string, startBlock: string, endBlock
 function computeFDV(target: any) {
   const floorQ96raw = target.floorPrice_Q96 || null
   const clearingQ96raw = target.finalClearingPrice_Q96 || null
-  const currDecimals = target.currencySymbol === 'USDC' || target.currencySymbol === 'USDT' ? 6 : 18
-  const tokDecimals = 18
+  const currDecimals = target.currencyDecimals ?? (target.currencySymbol === 'USDC' || target.currencySymbol === 'USDT' ? 6 : 18)
+  const tokDecimals = target.tokenDecimals ?? 18
   const shift = tokDecimals - currDecimals
   const supplyRaw = target.tokenSupply ? parseInt(target.tokenSupply.replace(/,/g, '')) : null
   const Q96 = 2n ** 96n
@@ -50,11 +50,20 @@ function computeFDV(target: any) {
   const clearingPrice = clearingQ96raw ? decode(clearingQ96raw) : null
   const floorFDV = floorPrice && supplyRaw ? floorPrice * supplyRaw : null
   const clearingFDV = clearingPrice && supplyRaw ? clearingPrice * supplyRaw : null
-  return { floorPrice, clearingPrice, floorFDV, clearingFDV, currDecimals }
+  const isUsd = target.currencySymbol === 'USDC' || target.currencySymbol === 'USDT'
+  return { floorPrice, clearingPrice, floorFDV, clearingFDV, currDecimals, isUsd }
+}
+
+function fmtValue(n: number, isUsd: boolean, currencySymbol?: string): string {
+  const prefix = isUsd ? '$' : ''
+  const suffix = isUsd ? '' : ` ${currencySymbol || 'ETH'}`
+  if (n >= 1e9) return `${prefix}${(n / 1e9).toFixed(1)}B${suffix}`
+  if (n >= 1e6) return `${prefix}${(n / 1e6).toFixed(1)}M${suffix}`
+  return `${prefix}${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}${suffix}`
 }
 
 function fmtUsd(n: number): string {
-  return n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+  return fmtValue(n, true)
 }
 
 // ─── Markdown output ─────────────────────────────────────────────────────────
@@ -82,9 +91,9 @@ async function printMarkdown(target: any, real: any[], data: any) {
 
   const rows: [string, string][] = [
     ['Floor price', target.floorPrice !== '?' ? `${target.floorPrice} ${target.currencySymbol}` : 'n/a (not set)'],
-    ['Floor FDV', fdv.floorFDV !== null ? fmtUsd(fdv.floorFDV) : 'n/a (missing supply)'],
+    ['Floor FDV', fdv.floorFDV !== null ? fmtValue(fdv.floorFDV, fdv.isUsd, target.currencySymbol) : 'n/a (missing supply)'],
     ['Clearing price', target.clearingPrice !== '?' ? `${target.clearingPrice} ${target.currencySymbol}` : 'n/a (auction ongoing)'],
-    ['Clearing FDV', fdv.clearingFDV !== null ? fmtUsd(fdv.clearingFDV) : 'n/a (missing supply)'],
+    ['Clearing FDV', fdv.clearingFDV !== null ? fmtValue(fdv.clearingFDV, fdv.isUsd, target.currencySymbol) : 'n/a (missing supply)'],
     ['Clearing vs. floor', target.clearingVsFloor && !target.clearingVsFloor.includes('e+') ? target.clearingVsFloor : 'n/a (near-zero floor)'],
     ['Total bids', target.totalBids?.toLocaleString() ?? 'n/a (no bids scanned)'],
     ['Unique bidders', target.uniqueBidders?.toLocaleString() ?? 'n/a (no bids scanned)'],
@@ -134,8 +143,8 @@ async function main() {
   // ─── FDV Derivation (full chain, auditable) ──────────────────────────
   const floorQ96raw = target.floorPrice_Q96 || null
   const clearingQ96raw = target.finalClearingPrice_Q96 || null
-  const currDecimals = target.currencySymbol === 'USDC' || target.currencySymbol === 'USDT' ? 6 : 18
-  const tokDecimals = 18 // CCA auction tokens use 18 decimals (ERC20 standard)
+  const currDecimals = target.currencyDecimals ?? (target.currencySymbol === 'USDC' || target.currencySymbol === 'USDT' ? 6 : 18)
+  const tokDecimals = target.tokenDecimals ?? 18
   const shift = tokDecimals - currDecimals
   const supplyRaw = target.tokenSupply ? parseInt(target.tokenSupply.replace(/,/g, '')) : null
 
@@ -156,7 +165,8 @@ async function main() {
   const floorFDV = floor && supplyRaw ? floor.decoded * supplyRaw : null
   const clearingFDV = clearing && supplyRaw ? clearing.decoded * supplyRaw : null
 
-  const formatUsd = (n: number) => n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+  const isUsd = target.currencySymbol === 'USDC' || target.currencySymbol === 'USDT'
+  const formatAmount = (n: number) => fmtValue(n, isUsd, target.currencySymbol)
 
   // Total raised
   const raisedRaw = target.currencyRaised ? BigInt(target.currencyRaised) : null
@@ -184,7 +194,7 @@ async function main() {
     console.log(`    raw Q96:         ${floorQ96raw}`)
     console.log(`    shifted (×10^${shift}): ${floor.shifted.toString()}`)
     console.log(`    ÷ 2^96:         ${floor.decoded.toFixed(8)} ${target.currencySymbol}/token`)
-    console.log(`    FDV = ${floor.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString()} = ${floorFDV !== null ? formatUsd(floorFDV) : '?'}`)
+    console.log(`    FDV = ${floor.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString()} = ${floorFDV !== null ? formatAmount(floorFDV) : '?'}`)
   }
   console.log()
   if (clearing) {
@@ -192,7 +202,7 @@ async function main() {
     console.log(`    raw Q96:         ${clearingQ96raw}`)
     console.log(`    shifted (×10^${shift}): ${clearing.shifted.toString()}`)
     console.log(`    ÷ 2^96:         ${clearing.decoded.toFixed(8)} ${target.currencySymbol}/token`)
-    console.log(`    FDV = ${clearing.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString()} = ${clearingFDV !== null ? formatUsd(clearingFDV) : '?'}`)
+    console.log(`    FDV = ${clearing.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString()} = ${clearingFDV !== null ? formatAmount(clearingFDV) : '?'}`)
   }
   console.log()
   console.log(`  Clearing vs floor: ${target.clearingVsFloor || '?'}`)
@@ -204,9 +214,9 @@ async function main() {
       const reconcilingSupply = Math.round(reportedFDV / clearing!.decoded)
       console.log()
       console.log(`  RECONCILIATION vs public $${(reportedFDV / 1e6).toFixed(0)}M FDV:`)
-      console.log(`    Our decode:      ${formatUsd(clearingFDV)} (using totalSupply = ${supplyRaw.toLocaleString()})`)
-      console.log(`    Public report:   ${formatUsd(reportedFDV)}`)
-      console.log(`    Gap:             ${formatUsd(Math.abs(clearingFDV - reportedFDV))} (${((clearingFDV / reportedFDV - 1) * 100).toFixed(1)}%)`)
+      console.log(`    Our decode:      ${formatAmount(clearingFDV)} (using totalSupply = ${supplyRaw.toLocaleString()})`)
+      console.log(`    Public report:   ${formatAmount(reportedFDV)}`)
+      console.log(`    Gap:             ${formatAmount(Math.abs(clearingFDV - reportedFDV))} (${((clearingFDV / reportedFDV - 1) * 100).toFixed(1)}%)`)
       console.log(`    Supply to match: ${reconcilingSupply.toLocaleString()} tokens at $${clearing!.decoded.toFixed(8)}/token`)
       console.log(`    Ratio:           ${(reconcilingSupply / supplyRaw).toFixed(4)}x our on-chain totalSupply`)
       const diff = reconcilingSupply - supplyRaw

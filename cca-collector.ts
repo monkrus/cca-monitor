@@ -71,7 +71,7 @@ const KNOWN_AUCTIONS = [
     chain: 'mainnet',
     contractAddress: '0xfFDab1083fCbBCEE32997795388B3D61Ebab786E' as `0x${string}`,
     startBlock: 0n,
-    notes: '1,016 ETH raised, ~577 bids, ~291 unique wallets, Jun 3-11 2026. 4th largest CCA by volume. HardFi/gold platform.',
+    notes: '803.9 ETH raised (cleared bids), ~577 bids, ~291 unique wallets, Jun 3-11 2026. HardFi/gold platform.',
     isTest: false,
   },
   {
@@ -87,7 +87,7 @@ const KNOWN_AUCTIONS = [
     chain: 'mainnet',
     contractAddress: '0x20eebd78151eae9ed2380ac613204aaf5ca0cd24' as `0x${string}`,
     startBlock: 0n,
-    notes: '1,002 bids, 5.5x oversubscribed, $106M FDV, $16.4M raised in USDC, floor $75M FDV, cleared at $0.011/CAP. Token: rCAP.',
+    notes: '1,002 bids, 5.5x oversubscribed, $106M FDV, $3.8M USDC raised (cleared bids), floor $75M FDV, cleared at $0.011/CAP. Token: rCAP.',
     isTest: false,
   },
   // ── Test/early auctions on Base (Dec 2025 – Jan 2026) ─────────────────────
@@ -223,14 +223,22 @@ interface PendingAlert {
   queuedAt: string
 }
 
+let pendingAlertsCache: PendingAlert[] | null = null
+
 function loadPendingAlerts(): PendingAlert[] {
+  if (pendingAlertsCache !== null) return pendingAlertsCache
   try {
-    if (fs.existsSync(PENDING_ALERTS_FILE)) return JSON.parse(fs.readFileSync(PENDING_ALERTS_FILE, 'utf-8'))
+    if (fs.existsSync(PENDING_ALERTS_FILE)) {
+      pendingAlertsCache = JSON.parse(fs.readFileSync(PENDING_ALERTS_FILE, 'utf-8'))
+      return pendingAlertsCache!
+    }
   } catch {}
-  return []
+  pendingAlertsCache = []
+  return pendingAlertsCache
 }
 
 function savePendingAlerts(alerts: PendingAlert[]) {
+  pendingAlertsCache = alerts
   fs.mkdirSync('data', { recursive: true })
   fs.writeFileSync(PENDING_ALERTS_FILE, JSON.stringify(alerts, null, 2))
 }
@@ -487,7 +495,16 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
     const startBlockVal = ok(startBlock) as bigint | undefined
     const endBlockVal = ok(endBlock) as bigint | undefined
     const durationBlocks = (startBlockVal && endBlockVal) ? Number(endBlockVal - startBlockVal) : 0
-    const durationHours = Math.round(durationBlocks * chainCfg.secsPerBlock / 3600)
+    let durationHours = Math.round(durationBlocks * chainCfg.secsPerBlock / 3600)
+    if (startBlockVal && endBlockVal) {
+      try {
+        const [startBl, endBl] = await Promise.all([
+          client.getBlock({ blockNumber: startBlockVal }),
+          client.getBlock({ blockNumber: endBlockVal }),
+        ])
+        durationHours = Math.round(Number(endBl.timestamp - startBl.timestamp) / 3600)
+      } catch {}
+    }
 
     const floorBig = ok(floorPrice) ? BigInt(ok(floorPrice)) : 0n
     const tickBig = ok(tickSpacing) ? BigInt(ok(tickSpacing)) : 0n
@@ -536,9 +553,11 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
     // Decode Q96 prices to human-readable (decimals-aware)
     const floorDecimal = q96ToPrice(ok(floorPrice)?.toString(), tokenDecimals ?? 18, currencyDecimals)
     const clearingDecimal = q96ToPrice(ok(clearingPrice)?.toString(), tokenDecimals ?? 18, currencyDecimals)
-    const clearingVsFloor = (floorBig > 0n && ok(clearingPrice))
-      ? `${(Number(BigInt(ok(clearingPrice)) * 10000n / floorBig) / 100).toFixed(1)}%`
-      : '?'
+    let clearingVsFloor = '?'
+    if (floorBig > 0n && ok(clearingPrice)) {
+      const ratio = Number(BigInt(ok(clearingPrice)) * 10000n / floorBig) / 100
+      clearingVsFloor = ratio > 99999 ? 'n/a (near-zero floor)' : `${ratio.toFixed(1)}%`
+    }
 
     // Format currencyRaised as human-readable
     const currencyRaisedRaw = ok(currencyRaisedResult) as bigint | undefined
@@ -577,6 +596,8 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
       hasValidationHook: ok(validationHook) != null && ok(validationHook) !== '0x0000000000000000000000000000000000000000',
       currency: ok(currency) as string | undefined,
       currencySymbol,
+      tokenDecimals: tokenDecimals ?? 18,
+      currencyDecimals,
       graduated: ok(graduated) as boolean | undefined,
       finalClearingPrice_Q96: ok(clearingPrice)?.toString(),
       clearingPrice: clearingDecimal,
@@ -718,6 +739,12 @@ async function pollPrices() {
 
     const change = parseFloat(price.change24h)
     const band = getPriceAlertBand(change)
+
+    // Reset cooldown state when price recovers above all alert thresholds
+    if (!band && token.lastAlertBand) {
+      token.lastAlertBand = undefined
+      token.lastAlertAt = undefined
+    }
     if (!band) continue
 
     // Check cooldown: 24h unless a new (more severe) band is crossed
