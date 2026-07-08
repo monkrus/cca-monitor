@@ -12,9 +12,9 @@
 | Metric | Value |
 |--------|-------|
 | Floor price | 0.00000951 ETH |
-| Floor FDV | $343 |
+| Floor FDV | 341 ETH |
 | Clearing price | 0.00001551 ETH |
-| Clearing FDV | $560 |
+| Clearing FDV | 556 ETH |
 | Clearing vs. floor | 163.0% |
 | Total bids | 17,232 |
 | Unique bidders | 14,096 |

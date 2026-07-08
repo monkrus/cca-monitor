@@ -73,8 +73,8 @@ async function printMarkdown(target: any, real: any[], data: any) {
   console.log(`| Auction | Bids | Unique bidders | Clearing vs. floor | KYC hook |`)
   console.log(`|---------|------|----------------|--------------------|----------|`)
   for (const a of real) {
-    const bids = a.totalBids?.toLocaleString() ?? 'n/a (no bids scanned)'
-    const bidders = a.uniqueBidders?.toLocaleString() ?? 'n/a (no bids scanned)'
+    const bids = a.totalBids?.toLocaleString('en-US') ?? 'n/a (no bids scanned)'
+    const bidders = a.uniqueBidders?.toLocaleString('en-US') ?? 'n/a (no bids scanned)'
     const cvf = a.clearingVsFloor && !a.clearingVsFloor.includes('e+') ? a.clearingVsFloor : 'n/a (near-zero floor)'
     const hook = a.hasValidationHook ? 'Yes' : 'No'
     console.log(`| ${a.name} | ${bids} | ${bidders} | ${cvf} | ${hook} |`)
@@ -95,8 +95,8 @@ async function printMarkdown(target: any, real: any[], data: any) {
     ['Clearing price', target.clearingPrice !== '?' ? `${target.clearingPrice} ${target.currencySymbol}` : 'n/a (auction ongoing)'],
     ['Clearing FDV', fdv.clearingFDV !== null ? fmtValue(fdv.clearingFDV, fdv.isUsd, target.currencySymbol) : 'n/a (missing supply)'],
     ['Clearing vs. floor', target.clearingVsFloor && !target.clearingVsFloor.includes('e+') ? target.clearingVsFloor : 'n/a (near-zero floor)'],
-    ['Total bids', target.totalBids?.toLocaleString() ?? 'n/a (no bids scanned)'],
-    ['Unique bidders', target.uniqueBidders?.toLocaleString() ?? 'n/a (no bids scanned)'],
+    ['Total bids', target.totalBids?.toLocaleString('en-US') ?? 'n/a (no bids scanned)'],
+    ['Unique bidders', target.uniqueBidders?.toLocaleString('en-US') ?? 'n/a (no bids scanned)'],
     ['Repeat-bidder share', repeatShare],
     ['Currency', target.currencySymbol || 'n/a (unresolved)'],
     ['Chain', target.chain],
@@ -194,7 +194,7 @@ async function main() {
     console.log(`    raw Q96:         ${floorQ96raw}`)
     console.log(`    shifted (×10^${shift}): ${floor.shifted.toString()}`)
     console.log(`    ÷ 2^96:         ${floor.decoded.toFixed(8)} ${target.currencySymbol}/token`)
-    console.log(`    FDV = ${floor.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString()} = ${floorFDV !== null ? formatAmount(floorFDV) : '?'}`)
+    console.log(`    FDV = ${floor.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString('en-US')} = ${floorFDV !== null ? formatAmount(floorFDV) : '?'}`)
   }
   console.log()
   if (clearing) {
@@ -202,7 +202,7 @@ async function main() {
     console.log(`    raw Q96:         ${clearingQ96raw}`)
     console.log(`    shifted (×10^${shift}): ${clearing.shifted.toString()}`)
     console.log(`    ÷ 2^96:         ${clearing.decoded.toFixed(8)} ${target.currencySymbol}/token`)
-    console.log(`    FDV = ${clearing.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString()} = ${clearingFDV !== null ? formatAmount(clearingFDV) : '?'}`)
+    console.log(`    FDV = ${clearing.decoded.toFixed(8)} × ${supplyRaw?.toLocaleString('en-US')} = ${clearingFDV !== null ? formatAmount(clearingFDV) : '?'}`)
   }
   console.log()
   console.log(`  Clearing vs floor: ${target.clearingVsFloor || '?'}`)
@@ -214,10 +214,10 @@ async function main() {
       const reconcilingSupply = Math.round(reportedFDV / clearing!.decoded)
       console.log()
       console.log(`  RECONCILIATION vs public $${(reportedFDV / 1e6).toFixed(0)}M FDV:`)
-      console.log(`    Our decode:      ${formatAmount(clearingFDV)} (using totalSupply = ${supplyRaw.toLocaleString()})`)
+      console.log(`    Our decode:      ${formatAmount(clearingFDV)} (using totalSupply = ${supplyRaw.toLocaleString('en-US')})`)
       console.log(`    Public report:   ${formatAmount(reportedFDV)}`)
       console.log(`    Gap:             ${formatAmount(Math.abs(clearingFDV - reportedFDV))} (${((clearingFDV / reportedFDV - 1) * 100).toFixed(1)}%)`)
-      console.log(`    Supply to match: ${reconcilingSupply.toLocaleString()} tokens at $${clearing!.decoded.toFixed(8)}/token`)
+      console.log(`    Supply to match: ${reconcilingSupply.toLocaleString('en-US')} tokens at $${clearing!.decoded.toFixed(8)}/token`)
       console.log(`    Ratio:           ${(reconcilingSupply / supplyRaw).toFixed(4)}x our on-chain totalSupply`)
       const diff = reconcilingSupply - supplyRaw
       if (Math.abs(diff) / supplyRaw < 0.01) {
@@ -236,9 +236,9 @@ async function main() {
   console.log(`Oversubscription:   ? (requires requiredRaise — not on-chain)`)
   console.log()
   console.log(`Duration:           ${target.durationHours || '?'}h (${target.durationHours ? (target.durationHours / 24).toFixed(1) : '?'} days)`)
-  console.log(`Total bids:         ${target.totalBids?.toLocaleString() || '?'}`)
-  console.log(`Unique bidders:     ${target.uniqueBidders?.toLocaleString() || '?'}`)
-  console.log(`Repeat bidders:     ${target.repeatBidders?.toLocaleString() || '?'}`)
+  console.log(`Total bids:         ${target.totalBids?.toLocaleString('en-US') || '?'}`)
+  console.log(`Unique bidders:     ${target.uniqueBidders?.toLocaleString('en-US') || '?'}`)
+  console.log(`Repeat bidders:     ${target.repeatBidders?.toLocaleString('en-US') || '?'}`)
   console.log(`Graduated:          ${target.graduated === true ? 'Yes' : target.graduated === false ? 'No' : '?'}`)
   console.log(`Validation hook:    ${target.hasValidationHook ? 'Yes (KYC/allowlist)' : 'No (open)'}`)
   if (target.flags?.length) console.log(`Flags:              ${target.flags.join(', ')}`)
@@ -254,8 +254,8 @@ async function main() {
     const cvf = (a.clearingVsFloor || '?').padEnd(16)
     const dur = a.durationHours ? `${(a.durationHours / 24).toFixed(0)}d`.padEnd(12) : '?'.padEnd(12)
     const hooked = (a.hasValidationHook ? 'Yes' : 'No').padEnd(8)
-    const bidders = (a.uniqueBidders?.toLocaleString() || '?').padEnd(10)
-    const repeat = (a.repeatBidders?.toLocaleString() || '?').padEnd(8)
+    const bidders = (a.uniqueBidders?.toLocaleString('en-US') || '?').padEnd(10)
+    const repeat = (a.repeatBidders?.toLocaleString('en-US') || '?').padEnd(8)
     const raised = a.currencyRaisedFormatted || '?'
     console.log(`${name}${cvf}${dur}${hooked}${bidders}${repeat}${raised}`)
   }
@@ -263,8 +263,8 @@ async function main() {
   // Dataset headline stats
   console.log(`\n\nDATASET HEADLINE STATS`)
   console.log('='.repeat(70))
-  console.log(`Total unique addresses (all real auctions): ${totalUnique.toLocaleString()}`)
-  console.log(`Appearing in 2+ auctions:                   ${repeatCount.toLocaleString()}`)
+  console.log(`Total unique addresses (all real auctions): ${totalUnique.toLocaleString('en-US')}`)
+  console.log(`Appearing in 2+ auctions:                   ${repeatCount.toLocaleString('en-US')}`)
   console.log(`Recurrence rate:                             ${recurrencePct}%`)
   console.log(`Real auctions tracked:                       ${real.length}`)
   console.log(`Graduated:                                   ${real.filter((a: any) => a.graduated).length}`)

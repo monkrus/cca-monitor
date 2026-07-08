@@ -819,9 +819,18 @@ async function initTokenTracking() {
 }
 
 // ─── Daily market summary ───────────────────────────────────────────────────
-let lastDailySummary = ''
-let lastHeartbeat = ''
+const WATCH_STATE_FILE = 'data/watch-state.json'
+const watchState: { lastDailySummary: string; lastHeartbeat: string; lastWeeklyDigest: string } = (() => {
+  try { return fs.existsSync(WATCH_STATE_FILE) ? JSON.parse(fs.readFileSync(WATCH_STATE_FILE, 'utf-8')) : {} } catch { return {} }
+})()
+let lastDailySummary = watchState.lastDailySummary || ''
+let lastHeartbeat = watchState.lastHeartbeat || ''
 const lastSuccessfulPoll: Record<string, string> = {}
+
+function saveWatchState() {
+  fs.mkdirSync('data', { recursive: true })
+  fs.writeFileSync(WATCH_STATE_FILE, JSON.stringify({ lastDailySummary, lastHeartbeat, lastWeeklyDigest }, null, 2))
+}
 
 async function sendDailySummary() {
   const now = new Date()
@@ -882,6 +891,7 @@ async function sendDailySummary() {
   lines.push(``, `<i>Get instant alerts: @cca_monitor_bot → /subscribe</i>`)
 
   await routeAlert('daily-summary', lines.join('\n'))
+  saveWatchState()
   console.log(`Daily summary sent (${dateKey})`)
 }
 
@@ -1038,11 +1048,12 @@ async function sendHeartbeat() {
   ].filter(Boolean).join('\n')
 
   await routeAlert('heartbeat', msg)
+  saveWatchState()
   console.log(`Heartbeat sent (${dateKey})`)
 }
 
 // ─── Weekly digest (Monday 9 UTC) ────────────────────────────────────────────
-let lastWeeklyDigest = ''
+let lastWeeklyDigest = watchState.lastWeeklyDigest || ''
 
 async function sendWeeklyDigest() {
   const now = new Date()
@@ -1128,6 +1139,7 @@ async function sendWeeklyDigest() {
   ].join('\n')
 
   await routeAlert('weekly-digest', msg)
+  saveWatchState()
   console.log(`Weekly digest sent (${weekKey})`)
 }
 
@@ -1153,11 +1165,11 @@ const DID_YOU_KNOW_POOL = [
   },
   (real: any[]) => {
     const totalBids = real.reduce((s: number, a: any) => s + (a.totalBids || 0), 0)
-    return `${totalBids.toLocaleString()} total bids placed across all real CCA auctions`
+    return `${totalBids.toLocaleString('en-US')} total bids placed across all real CCA auctions`
   },
   (real: any[]) => {
     const totalBidders = real.reduce((s: number, a: any) => s + (a.uniqueBidders || 0), 0)
-    return `${totalBidders.toLocaleString()} unique addresses have participated in CCA auctions`
+    return `${totalBidders.toLocaleString('en-US')} unique addresses have participated in CCA auctions`
   },
 ]
 
@@ -1202,7 +1214,7 @@ async function sendStateCCA(dryRun = false) {
     ``,
     `Real auctions: <b>${real.length}</b>`,
     `Total dataset: <b>${allAuctions.length}</b> auctions (${real.length} real + ${allAuctions.length - real.length} test)`,
-    `Unique bidders (all-time): <b>${totalBidders.toLocaleString()}</b>`,
+    `Unique bidders (all-time): <b>${totalBidders.toLocaleString('en-US')}</b>`,
     daysSinceLast >= 0 ? `Days since last real auction: <b>${daysSinceLast}</b>` : '',
     ``,
     fact ? `💡 <i>${fact}</i>` : '',
@@ -1264,7 +1276,7 @@ async function checkMilestones(dryRun = false) {
     if (bidderMilestone >= 5000) {
       const key = `bidders-${bidderMilestone}`
       if (!posted.includes(key)) {
-        const text = `🎯 <b>Milestone:</b> ${bidderMilestone.toLocaleString()} unique addresses in the CCA bidder index!\n\n📂 github.com/monkrus/cca-monitor`
+        const text = `🎯 <b>Milestone:</b> ${bidderMilestone.toLocaleString('en-US')} unique addresses in the CCA bidder index!\n\n📂 github.com/monkrus/cca-monitor`
         if (dryRun) console.log(`[DRY RUN] Milestone: ${key}\n${text}`)
         else await routeAlert('milestone', text)
         newMilestones.push(key)
@@ -1462,8 +1474,8 @@ function buildEndIntel(auction: TrackedAuction, hoursLeft: number, includeRatio:
     `${emoji} <b>${label} Auction Closing</b> (${chainLabel})`,
     ``,
     `<b>Time remaining:</b> ${timeStr}`,
-    `<b>Total bids:</b> ${auction.totalBids.toLocaleString()}`,
-    `<b>Unique bidders:</b> ${auction.uniqueBidders.size.toLocaleString()}`,
+    `<b>Total bids:</b> ${auction.totalBids.toLocaleString('en-US')}`,
+    `<b>Unique bidders:</b> ${auction.uniqueBidders.size.toLocaleString('en-US')}`,
     `<b>Currency raised:</b> ${raised}`,
   ]
 
@@ -1593,7 +1605,7 @@ async function pollBids() {
 
       for (const log of bidLogs) {
         const { owner, amount } = log.args as any
-        auction.uniqueBidders.add(owner)
+        auction.uniqueBidders.add((owner as string).toLowerCase())
         auction.totalBids++
 
         // Whale bid alert
@@ -1633,7 +1645,7 @@ async function pollBids() {
         console.log(`  Bid update sent for ${auction.tokenSymbol || auction.address}: ${auction.totalBids} bids, ${auction.uniqueBidders.size} bidders`)
       }
     } catch (err: any) {
-      // Silently retry next poll
+      console.error(`  Bid poll error (${auction.tokenSymbol || auction.address}): ${err.message}`)
     }
   }
 }
@@ -1657,6 +1669,18 @@ async function watchForNewAuctions() {
   const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain']
   const lastBlock: Record<string, bigint> = {}
 
+  // Load persisted last-block state (resume from where we left off)
+  const LAST_BLOCKS_FILE = 'data/last-blocks.json'
+  const savedBlocks: Record<string, string> = (() => {
+    try { return fs.existsSync(LAST_BLOCKS_FILE) ? JSON.parse(fs.readFileSync(LAST_BLOCKS_FILE, 'utf-8')) : {} } catch { return {} }
+  })()
+  const saveLastBlocks = () => {
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(lastBlock)) out[k] = v.toString()
+    fs.mkdirSync('data', { recursive: true })
+    fs.writeFileSync(LAST_BLOCKS_FILE, JSON.stringify(out, null, 2))
+  }
+
   // Initialize last-seen block for each chain (with 10s timeout per chain)
   const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
     Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))])
@@ -1664,12 +1688,27 @@ async function watchForNewAuctions() {
   for (const name of chainNames) {
     try {
       const client = getClient(name)
-      lastBlock[name] = await withTimeout(client.getBlockNumber(), 15_000)
-      console.log(`  Watching ${name} (from block ${lastBlock[name]})`)
+      const currentBlock = await withTimeout(client.getBlockNumber(), 15_000)
+      if (savedBlocks[name]) {
+        const saved = BigInt(savedBlocks[name])
+        lastBlock[name] = saved < currentBlock ? saved : currentBlock
+        console.log(`  Watching ${name} (resuming from block ${lastBlock[name]}, current ${currentBlock})`)
+      } else {
+        lastBlock[name] = currentBlock
+        console.log(`  Watching ${name} (from block ${lastBlock[name]})`)
+      }
     } catch (err: any) {
       console.error(`  Skipping ${name}: ${err.message}`)
     }
   }
+
+  // Track already-processed auctions to prevent duplicates on re-poll
+  const processedAuctions = new Set<string>()
+  // Seed from existing detection log
+  try {
+    const detections = fs.existsSync('data/live-detections.json') ? JSON.parse(fs.readFileSync('data/live-detections.json', 'utf-8')) : []
+    for (const d of detections) if (d.auction) processedAuctions.add(d.auction.toLowerCase())
+  } catch {}
 
   console.log('\nMonitor running (polling every 30s). Press Ctrl+C to stop.\n')
 
@@ -1691,6 +1730,8 @@ async function watchForNewAuctions() {
 
         for (const log of logs) {
           const { auction, token } = log.args as any
+          if (processedAuctions.has((auction as string).toLowerCase())) continue
+          processedAuctions.add((auction as string).toLowerCase())
           const timestamp = new Date().toISOString()
           const uniswapUrl = `https://app.uniswap.org/explore/auctions/${name === 'mainnet' ? 'ethereum' : name}/${auction}`
 
@@ -1738,8 +1779,9 @@ async function watchForNewAuctions() {
 
         lastBlock[name] = currentBlock
         lastSuccessfulPoll[name] = new Date().toISOString()
+        saveLastBlocks()
       } catch (err: any) {
-        // Silently retry on next poll — transient RPC errors are normal
+        console.error(`  Poll error (${name}): ${err.message}`)
       }
     }
   }
@@ -1876,8 +1918,8 @@ async function main() {
 
     console.log(`\nREPEAT-BIDDER CROSS-REFERENCE`)
     console.log('='.repeat(60))
-    console.log(`Total unique addresses (real auctions): ${bidderIndex.size.toLocaleString()}`)
-    console.log(`Appearing in 2+ auctions: ${repeatBidders.length.toLocaleString()}`)
+    console.log(`Total unique addresses (real auctions): ${bidderIndex.size.toLocaleString('en-US')}`)
+    console.log(`Appearing in 2+ auctions: ${repeatBidders.length.toLocaleString('en-US')}`)
     if (bidderIndexSorted.length > 0) {
       console.log(`\nTop 10 repeat bidders:`)
       for (const entry of bidderIndexSorted.slice(0, 10)) {

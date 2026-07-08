@@ -151,7 +151,7 @@ async function chartBidderRecurrence(index: any[]) {
           anchor: 'end',
           align: 'top',
           font: { size: 15, weight: 'bold' },
-          formatter: (v: number, ctx: any) => `${v.toLocaleString()} (${pcts[ctx.dataIndex]}%)`,
+          formatter: (v: number, ctx: any) => `${v.toLocaleString('en-US')} (${pcts[ctx.dataIndex]}%)`,
         },
       },
       scales: {

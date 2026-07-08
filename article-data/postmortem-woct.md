@@ -14,7 +14,7 @@
 | Floor price | n/a (not set) |
 | Floor FDV | n/a (missing supply) |
 | Clearing price | 0.00001236 ETH |
-| Clearing FDV | $2426943.4B |
+| Clearing FDV | 2,434 ETH |
 | Clearing vs. floor | n/a (near-zero floor) |
 | Total bids | 1,867 |
 | Unique bidders | 812 |
