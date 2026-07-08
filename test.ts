@@ -353,6 +353,59 @@ console.log('\n--- Layer 1c: Dataset integrity tests ---\n')
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LAYER 1d: CORRUPTION RECOVERY + ATOMIC WRITE TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n--- Layer 1d: Corruption recovery + atomic write tests ---\n')
+
+{
+  const fs = await import('fs')
+  const { writeJsonAtomic, readJsonSafe } = await import('./shared.ts')
+  const testDir = 'data/test-tmp'
+  fs.mkdirSync(testDir, { recursive: true })
+
+  // writeJsonAtomic round-trip
+  const testFile = `${testDir}/atomic-test.json`
+  const testObj = { hello: 'world', n: 42, arr: [1, 2, 3] }
+  writeJsonAtomic(testFile, testObj)
+  const readBack = JSON.parse(fs.readFileSync(testFile, 'utf-8'))
+  assert(readBack.hello === 'world' && readBack.n === 42, 'writeJsonAtomic round-trips correctly')
+
+  // No .tmp file left behind
+  assert(!fs.existsSync(testFile + '.tmp'), 'writeJsonAtomic leaves no .tmp file')
+
+  // readJsonSafe on missing file returns fallback
+  const missing = readJsonSafe(`${testDir}/no-such-file.json`, { x: 99 })
+  assert(missing.x === 99, 'readJsonSafe returns fallback for missing file')
+
+  // readJsonSafe on corrupt file: recovers and creates .corrupt- file
+  const corruptFile = `${testDir}/corrupt-test.json`
+  fs.writeFileSync(corruptFile, '{{{INVALID JSON!!!')
+  const recovered = readJsonSafe(corruptFile, { recovered: true })
+  assert(recovered.recovered === true, 'readJsonSafe returns fallback on corrupt file')
+  assert(!fs.existsSync(corruptFile), 'corrupt file is moved away (no longer at original path)')
+  const corruptFiles = fs.readdirSync(testDir).filter(f => f.startsWith('corrupt-test.json.corrupt-'))
+  assert(corruptFiles.length === 1, `corrupt file renamed to .corrupt-* (found ${corruptFiles.length})`)
+
+  // readJsonSafe on valid file works normally
+  const validFile = `${testDir}/valid-test.json`
+  writeJsonAtomic(validFile, { status: 'ok' })
+  const valid = readJsonSafe(validFile, { status: 'fail' })
+  assert(valid.status === 'ok', 'readJsonSafe reads valid file correctly')
+
+  // appendResult recovery: simulate corrupt results.json, verify it recovers
+  const resultsFile = `${testDir}/results-recovery.json`
+  fs.writeFileSync(resultsFile, 'CORRUPT DATA HERE')
+  const fallback = readJsonSafe(resultsFile, { timestamp: '', summary: {}, auctions: [] as any[] })
+  assert(Array.isArray(fallback.auctions) && fallback.auctions.length === 0, 'appendResult-style recovery starts from empty auctions')
+  const recoveryCorrupt = fs.readdirSync(testDir).filter(f => f.startsWith('results-recovery.json.corrupt-'))
+  assert(recoveryCorrupt.length === 1, 'corrupt results.json preserved as .corrupt- file')
+
+  // Cleanup test dir
+  for (const f of fs.readdirSync(testDir)) fs.unlinkSync(`${testDir}/${f}`)
+  fs.rmdirSync(testDir)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LAYER 2: ONLINE SMOKE TEST (skippable)
 // ═══════════════════════════════════════════════════════════════════════════
 if (process.env.SKIP_RPC === '1') {

@@ -12,7 +12,7 @@
 
 import * as dotenv from 'dotenv'
 import * as fs from 'fs'
-import { checkCrashLoop } from './shared.ts'
+import { checkCrashLoop, writeJsonAtomic, readJsonSafe } from './shared.ts'
 dotenv.config()
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!
@@ -42,15 +42,11 @@ interface Subscriber {
 const SUBS_FILE = 'data/subscribers.json'
 
 function loadSubscribers(): Subscriber[] {
-  try {
-    if (fs.existsSync(SUBS_FILE)) return JSON.parse(fs.readFileSync(SUBS_FILE, 'utf-8'))
-  } catch {}
-  return []
+  return readJsonSafe<Subscriber[]>(SUBS_FILE, [])
 }
 
 function saveSubscribers(subs: Subscriber[]) {
-  fs.mkdirSync('data', { recursive: true })
-  fs.writeFileSync(SUBS_FILE, JSON.stringify(subs, null, 2))
+  writeJsonAtomic(SUBS_FILE, subs)
 }
 
 function isSubscribed(userId: number): Subscriber | null {
@@ -230,9 +226,8 @@ async function handleSuccessfulPayment(chatId: number, userId: number, username:
 // ─── /stats command (free) ──────────────────────────────────────────────────
 async function handleStats(chatId: number) {
   try {
-    const raw = fs.readFileSync('data/results.json', 'utf-8')
-    const parsed = JSON.parse(raw)
-    const allAuctions = parsed.auctions || parsed // handle both wrapped and flat formats
+    const parsed = readJsonSafe('data/results.json', { auctions: [] as any[] })
+    const allAuctions = parsed.auctions || parsed
     const real = allAuctions.filter((a: any) => !a.isTest)
     const total = real.length
     const graduated = real.filter((a: any) => a.graduated).length

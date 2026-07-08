@@ -10,7 +10,7 @@
 
 import * as dotenv from 'dotenv'
 import * as fs from 'fs'
-import { checkCrashLoop } from './shared.ts'
+import { checkCrashLoop, writeJsonAtomic, readJsonSafe } from './shared.ts'
 dotenv.config()
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
@@ -46,15 +46,11 @@ function matchKeywords(text: string): { a: string; b: string } | null {
 const SEEN_FILE = 'data/intent-seen.json'
 
 function loadSeen(): Set<string> {
-  try {
-    if (fs.existsSync(SEEN_FILE)) return new Set(JSON.parse(fs.readFileSync(SEEN_FILE, 'utf-8')))
-  } catch {}
-  return new Set()
+  return new Set(readJsonSafe<string[]>(SEEN_FILE, []))
 }
 
 function saveSeen(seen: Set<string>) {
-  fs.mkdirSync('data', { recursive: true })
-  fs.writeFileSync(SEEN_FILE, JSON.stringify([...seen], null, 2))
+  writeJsonAtomic(SEEN_FILE, [...seen])
 }
 
 // ─── Telegram DM ────────────────────────────────────────────────────────────

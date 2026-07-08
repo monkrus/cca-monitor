@@ -15,7 +15,7 @@ import { createPublicClient, http, parseAbiItem, defineChain } from 'viem'
 import { mainnet, base, arbitrum } from 'viem/chains'
 import * as fs from 'fs'
 import * as dotenv from 'dotenv'
-import { checkCrashLoop } from './shared.ts'
+import { checkCrashLoop, writeJsonAtomic, readJsonSafe } from './shared.ts'
 dotenv.config()
 
 // ─── Unichain definition (not yet in viem) ──────────────────────────────────
@@ -227,20 +227,13 @@ let pendingAlertsCache: PendingAlert[] | null = null
 
 function loadPendingAlerts(): PendingAlert[] {
   if (pendingAlertsCache !== null) return pendingAlertsCache
-  try {
-    if (fs.existsSync(PENDING_ALERTS_FILE)) {
-      pendingAlertsCache = JSON.parse(fs.readFileSync(PENDING_ALERTS_FILE, 'utf-8'))
-      return pendingAlertsCache!
-    }
-  } catch {}
-  pendingAlertsCache = []
+  pendingAlertsCache = readJsonSafe<PendingAlert[]>(PENDING_ALERTS_FILE, [])
   return pendingAlertsCache
 }
 
 function savePendingAlerts(alerts: PendingAlert[]) {
   pendingAlertsCache = alerts
-  fs.mkdirSync('data', { recursive: true })
-  fs.writeFileSync(PENDING_ALERTS_FILE, JSON.stringify(alerts, null, 2))
+  writeJsonAtomic(PENDING_ALERTS_FILE, alerts)
 }
 
 function formatDelay(ms: number): string {
@@ -335,24 +328,22 @@ function formatTelegramAlert(detection: Record<string, any>, analysis?: Record<s
 
 // ─── Persistent data helpers ────────────────────────────────────────────────
 function appendDetection(detection: Record<string, any>) {
-  fs.mkdirSync('data', { recursive: true })
   const file = 'data/live-detections.json'
-  const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : []
+  const existing = readJsonSafe<any[]>(file, [])
   existing.push(detection)
-  fs.writeFileSync(file, JSON.stringify(existing, null, 2))
+  writeJsonAtomic(file, existing)
 }
 
 function appendResult(result: Record<string, any>) {
-  fs.mkdirSync('data', { recursive: true })
   const file = 'data/results.json'
-  const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : { timestamp: '', summary: {}, auctions: [] }
+  const existing = readJsonSafe(file, { timestamp: '', summary: {} as any, auctions: [] as any[] })
   // Upsert by contractAddress to avoid duplicates (address is the true key)
   const idx = existing.auctions.findIndex((a: any) => a.contractAddress === result.contractAddress)
   if (idx >= 0) existing.auctions[idx] = result
   else existing.auctions.push(result)
   existing.timestamp = new Date().toISOString()
   existing.summary.total = existing.auctions.length
-  fs.writeFileSync(file, JSON.stringify(existing, null, 2))
+  writeJsonAtomic(file, existing)
   console.log(`  Saved to ${file} (${existing.auctions.length} auctions total)`)
 }
 
@@ -684,16 +675,11 @@ const PRICE_ALERT_BANDS = [-10, -20, -30] // threshold bands
 const PRICE_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000 // 24h cooldown per token
 
 function loadTrackedTokens(): TrackedToken[] {
-  try {
-    const file = 'data/tracked-tokens.json'
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf-8'))
-  } catch {}
-  return []
+  return readJsonSafe<TrackedToken[]>('data/tracked-tokens.json', [])
 }
 
 function saveTrackedTokens() {
-  fs.mkdirSync('data', { recursive: true })
-  fs.writeFileSync('data/tracked-tokens.json', JSON.stringify(trackedTokens, null, 2))
+  writeJsonAtomic('data/tracked-tokens.json', trackedTokens)
 }
 
 async function fetchTokenPrice(address: string, chain: string): Promise<{ priceUsd: string, change24h: string, volume24h: string, poolAddress: string } | null> {
@@ -779,7 +765,7 @@ async function initTokenTracking() {
   const resultsFile = 'data/results.json'
   if (!fs.existsSync(resultsFile)) return
 
-  const results = JSON.parse(fs.readFileSync(resultsFile, 'utf-8'))
+  const results = readJsonSafe(resultsFile, { auctions: [] as any[] })
   for (const auction of results.auctions || []) {
     if (!auction.graduated || auction.isTest || !auction.tokenAddress) continue
 
@@ -820,16 +806,14 @@ async function initTokenTracking() {
 
 // ─── Daily market summary ───────────────────────────────────────────────────
 const WATCH_STATE_FILE = 'data/watch-state.json'
-const watchState: { lastDailySummary: string; lastHeartbeat: string; lastWeeklyDigest: string } = (() => {
-  try { return fs.existsSync(WATCH_STATE_FILE) ? JSON.parse(fs.readFileSync(WATCH_STATE_FILE, 'utf-8')) : {} } catch { return {} }
-})()
+const watchState: { lastDailySummary: string; lastHeartbeat: string; lastWeeklyDigest: string } =
+  readJsonSafe(WATCH_STATE_FILE, {} as any)
 let lastDailySummary = watchState.lastDailySummary || ''
 let lastHeartbeat = watchState.lastHeartbeat || ''
 const lastSuccessfulPoll: Record<string, string> = {}
 
 function saveWatchState() {
-  fs.mkdirSync('data', { recursive: true })
-  fs.writeFileSync(WATCH_STATE_FILE, JSON.stringify({ lastDailySummary, lastHeartbeat, lastWeeklyDigest }, null, 2))
+  writeJsonAtomic(WATCH_STATE_FILE, { lastDailySummary, lastHeartbeat, lastWeeklyDigest })
 }
 
 async function sendDailySummary() {
@@ -880,12 +864,10 @@ async function sendDailySummary() {
   // Stats (filter isTest from public-facing counts)
   const resultsFile = 'data/results.json'
   if (fs.existsSync(resultsFile)) {
-    try {
-      const results = JSON.parse(fs.readFileSync(resultsFile, 'utf-8'))
-      const real = results.auctions?.filter((a: any) => !a.isTest) || []
-      const graduated = real.filter((a: any) => a.graduated).length
-      lines.push(`<b>📈 All-time:</b> ${real.length} auctions tracked, ${graduated} graduated`)
-    } catch {}
+    const results = readJsonSafe(resultsFile, { auctions: [] as any[] })
+    const real = results.auctions?.filter((a: any) => !a.isTest) || []
+    const graduated = real.filter((a: any) => a.graduated).length
+    lines.push(`<b>📈 All-time:</b> ${real.length} auctions tracked, ${graduated} graduated`)
   }
 
   lines.push(``, `<i>Get instant alerts: @cca_monitor_bot → /subscribe</i>`)
@@ -901,15 +883,11 @@ const DETECTION_DATES_FILE = 'data/detection-dates.json'
 interface DetectionDates { [nameOrAddress: string]: string } // ISO date or 'unknown'
 
 function loadDetectionDates(): DetectionDates {
-  try {
-    if (fs.existsSync(DETECTION_DATES_FILE)) return JSON.parse(fs.readFileSync(DETECTION_DATES_FILE, 'utf-8'))
-  } catch {}
-  return {}
+  return readJsonSafe<DetectionDates>(DETECTION_DATES_FILE, {})
 }
 
 function saveDetectionDates(d: DetectionDates) {
-  fs.mkdirSync('data', { recursive: true })
-  fs.writeFileSync(DETECTION_DATES_FILE, JSON.stringify(d, null, 2))
+  writeJsonAtomic(DETECTION_DATES_FILE, d)
 }
 
 async function backfillDetectionDates() {
@@ -964,14 +942,14 @@ async function sendHeartbeat() {
   if (!dmId) return
 
   let totalAuctions = 0, realGraduated = 0, testGraduated = 0
-  try {
-    const data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8'))
+  {
+    const data = readJsonSafe('data/results.json', { auctions: [] as any[] })
     totalAuctions = data.auctions?.length || 0
     const real = (data.auctions || []).filter((a: any) => !a.isTest)
     const test = (data.auctions || []).filter((a: any) => a.isTest)
     realGraduated = real.filter((a: any) => a.graduated).length
     testGraduated = test.filter((a: any) => a.graduated).length
-  } catch {}
+  }
 
   const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain']
   const lines: string[] = []
@@ -992,16 +970,14 @@ async function sendHeartbeat() {
 
   // Subscriber counts by tier
   let subLines: string[] = []
-  try {
-    const subs = JSON.parse(fs.readFileSync('data/subscribers.json', 'utf-8')) as Array<{ tier?: string; expiresAt: string }>
+  {
+    const subs = readJsonSafe<Array<{ tier?: string; expiresAt: string }>>('data/subscribers.json', [])
     const now = new Date()
     const active = subs.filter(s => s.tier === 'lifetime' || new Date(s.expiresAt) >= now)
     const byTier: Record<string, number> = {}
     for (const s of active) byTier[s.tier || 'legacy'] = (byTier[s.tier || 'legacy'] || 0) + 1
     const parts = Object.entries(byTier).map(([t, n]) => `${t}: ${n}`)
-    subLines = [`<b>Subscribers:</b> ${active.length} (${parts.join(', ')})`]
-  } catch {
-    subLines = [`<b>Subscribers:</b> 0`]
+    subLines = active.length > 0 ? [`<b>Subscribers:</b> ${active.length} (${parts.join(', ')})`] : [`<b>Subscribers:</b> 0`]
   }
 
   // Public channel member count
@@ -1068,21 +1044,23 @@ async function sendWeeklyDigest() {
 
   // Dataset stats
   let totalAuctions = 0, realAuctions = 0
-  try {
-    const data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8'))
+  {
+    const data = readJsonSafe('data/results.json', { auctions: [] as any[] })
     totalAuctions = data.auctions?.length || 0
     realAuctions = data.auctions?.filter((a: any) => !a.isTest).length || 0
-  } catch {}
+  }
 
   // Subscribers by tier
   let subLine = '0'
-  try {
-    const subs = JSON.parse(fs.readFileSync('data/subscribers.json', 'utf-8')) as Array<{ tier?: string; expiresAt: string }>
+  {
+    const subs = readJsonSafe<Array<{ tier?: string; expiresAt: string }>>('data/subscribers.json', [])
     const active = subs.filter(s => s.tier === 'lifetime' || new Date(s.expiresAt) >= now)
-    const byTier: Record<string, number> = {}
-    for (const s of active) byTier[s.tier || 'legacy'] = (byTier[s.tier || 'legacy'] || 0) + 1
-    subLine = `${active.length} (${Object.entries(byTier).map(([t, n]) => `${t}: ${n}`).join(', ')})`
-  } catch {}
+    if (active.length > 0) {
+      const byTier: Record<string, number> = {}
+      for (const s of active) byTier[s.tier || 'legacy'] = (byTier[s.tier || 'legacy'] || 0) + 1
+      subLine = `${active.length} (${Object.entries(byTier).map(([t, n]) => `${t}: ${n}`).join(', ')})`
+    }
+  }
 
   // Public channel members
   let publicMembers = 'n/a'
@@ -1114,10 +1092,10 @@ async function sendWeeklyDigest() {
 
   // Intent radar matches this week
   let intentMatches = 0
-  try {
-    const seen = JSON.parse(fs.readFileSync('data/intent-seen.json', 'utf-8')) as string[]
-    intentMatches = seen.length // total seen, not per-week (no timestamps in seen file)
-  } catch {}
+  {
+    const seen = readJsonSafe<string[]>('data/intent-seen.json', [])
+    intentMatches = seen.length
+  }
 
   // Data files size
   let dataSize = '?'
@@ -1157,11 +1135,10 @@ const DID_YOU_KNOW_POOL = [
     return total > 0 ? `${Math.round(tests / total * 100)}% of all CCA deployments were test auctions` : null
   },
   () => {
-    try {
-      const idx = JSON.parse(fs.readFileSync('data/bidder-index.json', 'utf-8'))
-      const repeat = idx.filter((e: any) => e.auctionCount >= 2).length
-      return `${repeat} addresses have bid in 2+ CCA auctions — the early repeat-bidder cohort`
-    } catch { return null }
+    const idx = readJsonSafe<any[]>('data/bidder-index.json', [])
+    if (idx.length === 0) return null
+    const repeat = idx.filter((e: any) => e.auctionCount >= 2).length
+    return `${repeat} addresses have bid in 2+ CCA auctions — the early repeat-bidder cohort`
   },
   (real: any[]) => {
     const totalBids = real.reduce((s: number, a: any) => s + (a.totalBids || 0), 0)
@@ -1189,8 +1166,7 @@ async function sendStateCCA(dryRun = false) {
   if (!publicId && !dryRun) return
 
   // Load data
-  let data: any = { auctions: [] }
-  try { data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8')) } catch {}
+  const data = readJsonSafe('data/results.json', { auctions: [] as any[] })
   const allAuctions = data.auctions || []
   const real = allAuctions.filter((a: any) => !a.isTest)
 
@@ -1236,15 +1212,11 @@ async function sendStateCCA(dryRun = false) {
 const MILESTONES_FILE = 'data/posted-milestones.json'
 
 function loadMilestones(): string[] {
-  try {
-    if (fs.existsSync(MILESTONES_FILE)) return JSON.parse(fs.readFileSync(MILESTONES_FILE, 'utf-8'))
-  } catch {}
-  return []
+  return readJsonSafe<string[]>(MILESTONES_FILE, [])
 }
 
 function saveMilestones(m: string[]) {
-  fs.mkdirSync('data', { recursive: true })
-  fs.writeFileSync(MILESTONES_FILE, JSON.stringify(m, null, 2))
+  writeJsonAtomic(MILESTONES_FILE, m)
 }
 
 async function checkMilestones(dryRun = false) {
@@ -1255,8 +1227,7 @@ async function checkMilestones(dryRun = false) {
   const newMilestones: string[] = []
 
   // Real auction count milestones (every 5)
-  let data: any = { auctions: [] }
-  try { data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8')) } catch {}
+  const data = readJsonSafe('data/results.json', { auctions: [] as any[] })
   const realCount = (data.auctions || []).filter((a: any) => !a.isTest).length
   const auctionMilestone = Math.floor(realCount / 5) * 5
   if (auctionMilestone >= 5) {
@@ -1270,8 +1241,8 @@ async function checkMilestones(dryRun = false) {
   }
 
   // Bidder index milestones (every 5000)
-  try {
-    const idx = JSON.parse(fs.readFileSync('data/bidder-index.json', 'utf-8'))
+  {
+    const idx = readJsonSafe<any[]>('data/bidder-index.json', [])
     const bidderMilestone = Math.floor(idx.length / 5000) * 5000
     if (bidderMilestone >= 5000) {
       const key = `bidders-${bidderMilestone}`
@@ -1282,7 +1253,7 @@ async function checkMilestones(dryRun = false) {
         newMilestones.push(key)
       }
     }
-  } catch {}
+  }
 
   if (newMilestones.length > 0) {
     if (!dryRun) {
@@ -1441,15 +1412,11 @@ interface EndAlertsSent {
 }
 
 function loadEndAlerts(): EndAlertsSent {
-  try {
-    if (fs.existsSync(END_ALERTS_FILE)) return JSON.parse(fs.readFileSync(END_ALERTS_FILE, 'utf-8'))
-  } catch {}
-  return {}
+  return readJsonSafe<EndAlertsSent>(END_ALERTS_FILE, {})
 }
 
 function saveEndAlerts(data: EndAlertsSent) {
-  fs.mkdirSync('data', { recursive: true })
-  fs.writeFileSync(END_ALERTS_FILE, JSON.stringify(data, null, 2))
+  writeJsonAtomic(END_ALERTS_FILE, data)
 }
 
 function buildEndIntel(auction: TrackedAuction, hoursLeft: number, includeRatio: boolean): string {
@@ -1671,14 +1638,11 @@ async function watchForNewAuctions() {
 
   // Load persisted last-block state (resume from where we left off)
   const LAST_BLOCKS_FILE = 'data/last-blocks.json'
-  const savedBlocks: Record<string, string> = (() => {
-    try { return fs.existsSync(LAST_BLOCKS_FILE) ? JSON.parse(fs.readFileSync(LAST_BLOCKS_FILE, 'utf-8')) : {} } catch { return {} }
-  })()
+  const savedBlocks: Record<string, string> = readJsonSafe(LAST_BLOCKS_FILE, {})
   const saveLastBlocks = () => {
     const out: Record<string, string> = {}
     for (const [k, v] of Object.entries(lastBlock)) out[k] = v.toString()
-    fs.mkdirSync('data', { recursive: true })
-    fs.writeFileSync(LAST_BLOCKS_FILE, JSON.stringify(out, null, 2))
+    writeJsonAtomic(LAST_BLOCKS_FILE, out)
   }
 
   // Initialize last-seen block for each chain (with 10s timeout per chain)
@@ -1705,10 +1669,8 @@ async function watchForNewAuctions() {
   // Track already-processed auctions to prevent duplicates on re-poll
   const processedAuctions = new Set<string>()
   // Seed from existing detection log
-  try {
-    const detections = fs.existsSync('data/live-detections.json') ? JSON.parse(fs.readFileSync('data/live-detections.json', 'utf-8')) : []
-    for (const d of detections) if (d.auction) processedAuctions.add(d.auction.toLowerCase())
-  } catch {}
+  const detections = readJsonSafe<any[]>('data/live-detections.json', [])
+  for (const d of detections) if (d.auction) processedAuctions.add(d.auction.toLowerCase())
 
   console.log('\nMonitor running (polling every 30s). Press Ctrl+C to stop.\n')
 
@@ -1919,7 +1881,7 @@ async function main() {
     }
 
     // Write bidder index
-    fs.writeFileSync('data/bidder-index.json', JSON.stringify(bidderIndexSorted, null, 2))
+    writeJsonAtomic('data/bidder-index.json', bidderIndexSorted)
 
     console.log(`\nREPEAT-BIDDER CROSS-REFERENCE`)
     console.log('='.repeat(60))
@@ -1978,9 +1940,9 @@ async function main() {
     // Existing test records are preserved — partial analyze never shrinks the dataset.
     let allResults = results
     if (realOnly) {
-      try {
-        const existing = JSON.parse(fs.readFileSync('data/results.json', 'utf-8'))
-        const existingAuctions = existing.auctions || []
+      const existing = readJsonSafe('data/results.json', { auctions: [] as any[] })
+      const existingAuctions = existing.auctions || []
+      if (existingAuctions.length > 0) {
         const existingTests = existingAuctions.filter((a: any) => a.isTest)
         const newAddrs = new Set(results.map((r: any) => r.contractAddress?.toLowerCase()))
         const keptExisting = existingAuctions.filter((a: any) =>
@@ -1988,7 +1950,7 @@ async function main() {
         )
         allResults = [...keptExisting, ...results]
         console.log(`\n--real-only upsert: ${results.length} real updated, ${existingTests.length} test records preserved`)
-      } catch {
+      } else {
         console.log(`\nNo existing results.json — writing ${results.length} results`)
       }
     }
@@ -2011,8 +1973,7 @@ async function main() {
       auctions: allResults,
     }
 
-    fs.mkdirSync('data', { recursive: true })
-    fs.writeFileSync('data/results.json', JSON.stringify(output, null, 2))
+    writeJsonAtomic('data/results.json', output)
     console.log(`\nResults saved to data/results.json`)
     console.log(`Bidder index saved to data/bidder-index.json`)
   }
