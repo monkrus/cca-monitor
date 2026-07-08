@@ -4,5 +4,5 @@
   "minTestAuctions": 11,
   "expectedBidderIndexEntries": 15520,
   "expectedRepeatBidders": 86,
-  "expectedMaxAuctionCount": 4
+  "expectedAllFourBidders": 1
 }

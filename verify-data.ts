@@ -35,7 +35,7 @@ const allAuctions = results.auctions || []
 const real = allAuctions.filter((a: any) => !a.isTest)
 const test = allAuctions.filter((a: any) => a.isTest)
 const repeatBidders = bidderIndex.filter((e: any) => e.auctionCount >= 2)
-const maxAuctionCount = bidderIndex.length > 0 ? bidderIndex[0].auctionCount : 0
+const allFourBidders = bidderIndex.filter((e: any) => e.auctionCount === 4)
 
 // ── Check counts against invariants (must not shrink) ──────────────────
 check(allAuctions.length >= invariants.minTotalAuctions,
@@ -58,11 +58,11 @@ check(uniqueNames.size === allAuctions.length,
 
 // ── Bidder index ───────────────────────────────────────────────────────
 check(bidderIndex.length >= invariants.expectedBidderIndexEntries,
-  `bidder-index entries >= ${invariants.expectedBidderIndexEntries} (got ${bidderIndex.length})`)
+  `unique=${bidderIndex.length} >= ${invariants.expectedBidderIndexEntries}`)
 check(repeatBidders.length >= invariants.expectedRepeatBidders,
-  `repeat bidders >= ${invariants.expectedRepeatBidders} (got ${repeatBidders.length})`)
-check(maxAuctionCount >= invariants.expectedMaxAuctionCount,
-  `max auction count >= ${invariants.expectedMaxAuctionCount} (got ${maxAuctionCount})`)
+  `repeat(2+)=${repeatBidders.length} >= ${invariants.expectedRepeatBidders}`)
+check(allFourBidders.length >= invariants.expectedAllFourBidders,
+  `all-four=${allFourBidders.length} >= ${invariants.expectedAllFourBidders}`)
 
 // ── Summary.real/tests match actual counts ─────────────────────────────
 if (results.summary) {
@@ -92,8 +92,8 @@ if (repeatBidders.length > invariants.expectedRepeatBidders) {
   invariants.expectedRepeatBidders = repeatBidders.length
   updated = true
 }
-if (maxAuctionCount > invariants.expectedMaxAuctionCount) {
-  invariants.expectedMaxAuctionCount = maxAuctionCount
+if (allFourBidders.length > invariants.expectedAllFourBidders) {
+  invariants.expectedAllFourBidders = allFourBidders.length
   updated = true
 }
 if (updated) {
