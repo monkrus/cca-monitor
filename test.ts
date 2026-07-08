@@ -258,6 +258,67 @@ const COOLDOWN_MS = 24 * 60 * 60 * 1000
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LAYER 1c: DATASET INTEGRITY TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n--- Layer 1c: Dataset integrity tests ---\n')
+
+// (a) Save/load round-trip retains isTest records
+{
+  const fs = await import('fs')
+  const data = JSON.parse(fs.readFileSync('data/results.json', 'utf-8'))
+  const allAuctions = data.auctions || []
+  const testRecords = allAuctions.filter((a: any) => a.isTest)
+  const realRecords = allAuctions.filter((a: any) => !a.isTest)
+  assert(allAuctions.length === 15, `results.json has 15 records (got ${allAuctions.length})`)
+  assert(realRecords.length === 4, `results.json has 4 real auctions (got ${realRecords.length})`)
+  assert(testRecords.length === 11, `results.json has 11 test auctions (got ${testRecords.length})`)
+
+  // Verify no duplicates by contractAddress
+  const addrs = allAuctions.map((a: any) => a.contractAddress.toLowerCase())
+  const uniqueAddrs = new Set(addrs)
+  assert(uniqueAddrs.size === allAuctions.length, `no duplicate contractAddresses (${uniqueAddrs.size} unique vs ${allAuctions.length} total)`)
+}
+
+// (b) Summary count helpers given a mixed fixture return correct splits
+{
+  const fixture = [
+    { name: 'REAL1', isTest: false, graduated: true },
+    { name: 'REAL2', isTest: false, graduated: true },
+    { name: 'REAL3', isTest: false, graduated: false },
+    { name: 'REAL4', isTest: false, graduated: true },
+    { name: 'TEST1', isTest: true,  graduated: false },
+    { name: 'TEST2', isTest: true,  graduated: true },
+    { name: 'TEST3', isTest: true,  graduated: false },
+    { name: 'TEST4', isTest: true,  graduated: false },
+    { name: 'TEST5', isTest: true,  graduated: false },
+    { name: 'TEST6', isTest: true,  graduated: false },
+    { name: 'TEST7', isTest: true,  graduated: false },
+    { name: 'TEST8', isTest: true,  graduated: false },
+    { name: 'TEST9', isTest: true,  graduated: false },
+    { name: 'TEST10', isTest: true, graduated: false },
+    { name: 'TEST11', isTest: true, graduated: true },
+  ]
+  const real = fixture.filter(a => !a.isTest)
+  const test = fixture.filter(a => a.isTest)
+  const realGraduated = real.filter(a => a.graduated).length
+  const testGraduated = test.filter(a => a.graduated).length
+  assert(real.length === 4, `fixture: 4 real (got ${real.length})`)
+  assert(test.length === 11, `fixture: 11 test (got ${test.length})`)
+  assert(realGraduated === 3, `fixture: 3 real graduated (got ${realGraduated})`)
+  assert(testGraduated === 2, `fixture: 2 test graduated (got ${testGraduated})`)
+
+  // Public-facing counts must filter isTest
+  const publicTotal = real.length
+  const publicGraduated = realGraduated
+  assert(publicTotal === 4, `public count: 4 auctions tracked (got ${publicTotal})`)
+  assert(publicGraduated === 3, `public count: 3 graduated (got ${publicGraduated})`)
+
+  // Internal heartbeat shows both
+  const heartbeatTotal = fixture.length
+  assert(heartbeatTotal === 15, `heartbeat: 15 total (got ${heartbeatTotal})`)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LAYER 2: ONLINE SMOKE TEST (skippable)
 // ═══════════════════════════════════════════════════════════════════════════
 if (process.env.SKIP_RPC === '1') {

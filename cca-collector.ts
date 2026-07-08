@@ -1863,14 +1863,11 @@ async function main() {
     console.log('CCA Historical Analysis')
     console.log('Pulling data from all known auctions...\n')
 
-    const auctions = includeTests
-      ? KNOWN_AUCTIONS
-      : KNOWN_AUCTIONS.filter(a => !a.isTest)
-
-    if (!includeTests) {
-      const skipped = KNOWN_AUCTIONS.length - auctions.length
-      if (skipped > 0) console.log(`(Skipping ${skipped} test auctions. Use --include-tests to include them.)\n`)
-    }
+    // Always analyze ALL auctions (real + test) so results.json is complete.
+    // isTest filtering happens only at display/summary/alert time.
+    const auctions = KNOWN_AUCTIONS
+    const testCount = auctions.filter(a => a.isTest).length
+    if (testCount > 0) console.log(`(Analyzing all ${auctions.length} auctions: ${auctions.length - testCount} real, ${testCount} test)\n`)
 
     const results = []
     for (const auction of auctions) {

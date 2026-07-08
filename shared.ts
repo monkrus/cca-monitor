@@ -130,6 +130,11 @@ export async function getLogsChunked(
             console.log(`  Block range error: ${msg}`)
             loggedRangeError = true
           }
+          // Free-tier RPCs have tiny limits (e.g., 10 blocks) — skip the
+          // adaptive ladder entirely and fall through to public RPC fallback
+          if (/free.tier|up to a \d+ block range/i.test(msg)) {
+            throw err
+          }
           const newSize = chunkSize / 2n < CHUNK_FLOOR ? CHUNK_FLOOR : chunkSize / 2n
           if (newSize < chunkSize) {
             chunkSize = newSize

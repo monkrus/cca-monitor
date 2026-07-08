@@ -84,9 +84,9 @@ async function main() {
     }
 
     // Get currency info
-    const currencyDecimals = auctionData.currencySymbol === 'USDC' || auctionData.currencySymbol === 'USDT' ? 6 : 18
+    const currencyDecimals = auctionData.currencyDecimals ?? (auctionData.currencySymbol === 'USDC' || auctionData.currencySymbol === 'USDT' ? 6 : 18)
     const currencySymbol = auctionData.currencySymbol || 'ETH'
-    const tokenDecimals = 18 // default; could read from chain but not worth RPC
+    const tokenDecimals = auctionData.tokenDecimals ?? 18
 
     // Total amount
     let totalAmount = 0n

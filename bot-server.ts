@@ -231,12 +231,14 @@ async function handleSuccessfulPayment(chatId: number, userId: number, username:
 async function handleStats(chatId: number) {
   try {
     const raw = fs.readFileSync('data/results.json', 'utf-8')
-    const auctions = JSON.parse(raw)
-    const total = auctions.length
-    const graduated = auctions.filter((a: any) => a.graduated).length
-    const chains = [...new Set(auctions.map((a: any) => a.chain))].length
-    const totalBids = auctions.reduce((s: number, a: any) => s + (a.totalBids || 0), 0)
-    const totalBidders = auctions.reduce((s: number, a: any) => s + (a.uniqueBidders || 0), 0)
+    const parsed = JSON.parse(raw)
+    const allAuctions = parsed.auctions || parsed // handle both wrapped and flat formats
+    const real = allAuctions.filter((a: any) => !a.isTest)
+    const total = real.length
+    const graduated = real.filter((a: any) => a.graduated).length
+    const chains = [...new Set(real.map((a: any) => a.chain))].length
+    const totalBids = real.reduce((s: number, a: any) => s + (a.totalBids || 0), 0)
+    const totalBidders = real.reduce((s: number, a: any) => s + (a.uniqueBidders || 0), 0)
     await sendMessage(chatId, [
       `<b>CCA Dataset Stats</b>`,
       ``,
