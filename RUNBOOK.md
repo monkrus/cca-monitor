@@ -97,14 +97,21 @@ git push
 
 ## Re-running Analyze Safely
 
-`npm run analyze` is idempotent — `appendResult` upserts by `contractAddress`, so running it multiple times won't create duplicates. Safe to run anytime.
+`npm run analyze` is idempotent — always processes all 15 auctions (4 real + 11 test) and writes the full dataset. Safe to run anytime.
 
 ```bash
-# Real auctions only
+# Default: analyze all auctions (real + test)
 npm run analyze
 
-# Include test deployments
-npx tsx cca-collector.ts analyze --include-tests
+# Fast mode: analyze only real auctions, upsert into existing file
+# (preserves test records — never shrinks the dataset)
+npx tsx cca-collector.ts analyze --real-only
+```
+
+**After any analyze on the live box:**
+```bash
+npm run verify-data        # confirms dataset integrity
+git add data/*.json && git commit -m "Data: post-analyze update" && git push
 ```
 
 ## When the Intent Radar Fires

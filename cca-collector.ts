@@ -1846,7 +1846,7 @@ async function watchForNewAuctions() {
 // ─── ENTRY POINT ────────────────────────────────────────────────────────────
 async function main() {
   const mode = process.argv[2] || 'analyze'
-  const includeTests = process.argv.includes('--include-tests')
+  const realOnly = process.argv.includes('--real-only')
   const dryRun = process.argv.includes('--dry-run')
 
   if (dryRun) {
@@ -1863,11 +1863,19 @@ async function main() {
     console.log('CCA Historical Analysis')
     console.log('Pulling data from all known auctions...\n')
 
-    // Always analyze ALL auctions (real + test) so results.json is complete.
-    // isTest filtering happens only at display/summary/alert time.
-    const auctions = KNOWN_AUCTIONS
-    const testCount = auctions.filter(a => a.isTest).length
-    if (testCount > 0) console.log(`(Analyzing all ${auctions.length} auctions: ${auctions.length - testCount} real, ${testCount} test)\n`)
+    // Default: analyze ALL auctions (real + test) so results.json is complete.
+    // --real-only: analyze only real auctions, but UPSERT into existing file
+    // (never shrinks the dataset — test records are preserved).
+    // isTest filtering for display/alerts happens downstream, never here.
+    const auctions = realOnly
+      ? KNOWN_AUCTIONS.filter(a => !a.isTest)
+      : KNOWN_AUCTIONS
+    if (realOnly) {
+      console.log(`(--real-only: analyzing ${auctions.length} real auctions, preserving existing test records)\n`)
+    } else {
+      const testCount = auctions.filter(a => a.isTest).length
+      if (testCount > 0) console.log(`(Analyzing all ${auctions.length} auctions: ${auctions.length - testCount} real, ${testCount} test)\n`)
+    }
 
     const results = []
     for (const auction of auctions) {
@@ -1966,19 +1974,41 @@ async function main() {
     // Strip internal _bidderAddresses before saving
     for (const r of results) delete (r as any)._bidderAddresses
 
+    // In --real-only mode, merge new real results into existing file (upsert).
+    // Existing test records are preserved — partial analyze never shrinks the dataset.
+    let allResults = results
+    if (realOnly) {
+      try {
+        const existing = JSON.parse(fs.readFileSync('data/results.json', 'utf-8'))
+        const existingAuctions = existing.auctions || []
+        const existingTests = existingAuctions.filter((a: any) => a.isTest)
+        const newAddrs = new Set(results.map((r: any) => r.contractAddress?.toLowerCase()))
+        const keptExisting = existingAuctions.filter((a: any) =>
+          a.isTest || !newAddrs.has(a.contractAddress?.toLowerCase())
+        )
+        allResults = [...keptExisting, ...results]
+        console.log(`\n--real-only upsert: ${results.length} real updated, ${existingTests.length} test records preserved`)
+      } catch {
+        console.log(`\nNo existing results.json — writing ${results.length} results`)
+      }
+    }
+
+    const allReal = allResults.filter((r: any) => !r.isTest)
+    const allTests = allResults.filter((r: any) => r.isTest)
+
     // Save to file
     const output = {
       timestamp: new Date().toISOString(),
       summary: {
-        total: results.length,
-        real: real.length,
-        tests: tests.length,
-        graduated: results.filter(r => r.graduated).length,
-        failed: results.filter(r => r.graduated === false).length,
-        withHooks: results.filter(r => r.hasValidationHook).length,
+        total: allResults.length,
+        real: allReal.length,
+        tests: allTests.length,
+        graduated: allResults.filter((r: any) => r.graduated).length,
+        failed: allResults.filter((r: any) => r.graduated === false).length,
+        withHooks: allResults.filter((r: any) => r.hasValidationHook).length,
         bidderInsights,
       },
-      auctions: results,
+      auctions: allResults,
     }
 
     fs.mkdirSync('data', { recursive: true })

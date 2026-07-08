@@ -318,6 +318,40 @@ console.log('\n--- Layer 1c: Dataset integrity tests ---\n')
   assert(heartbeatTotal === 15, `heartbeat: 15 total (got ${heartbeatTotal})`)
 }
 
+// (c) --real-only upsert: merging 4 real results into a 15-record file must keep all 15
+{
+  const fixture15 = {
+    timestamp: '2026-01-01T00:00:00Z',
+    summary: { total: 15, real: 4, tests: 11 },
+    auctions: [
+      { name: 'REAL1', contractAddress: '0xaaa', isTest: false },
+      { name: 'REAL2', contractAddress: '0xbbb', isTest: false },
+      { name: 'REAL3', contractAddress: '0xccc', isTest: false },
+      { name: 'REAL4', contractAddress: '0xddd', isTest: false },
+      ...Array.from({ length: 11 }, (_, i) => ({ name: `TEST${i+1}`, contractAddress: `0xtest${i}`, isTest: true })),
+    ],
+  }
+  // Simulate --real-only upsert: 4 new real results replace existing real, keep tests
+  const newReal = [
+    { name: 'REAL1', contractAddress: '0xaaa', isTest: false, updated: true },
+    { name: 'REAL2', contractAddress: '0xbbb', isTest: false, updated: true },
+    { name: 'REAL3', contractAddress: '0xccc', isTest: false, updated: true },
+    { name: 'REAL4', contractAddress: '0xddd', isTest: false, updated: true },
+  ]
+  const existingAuctions = fixture15.auctions
+  const newAddrs = new Set(newReal.map(r => r.contractAddress.toLowerCase()))
+  const kept = existingAuctions.filter(a =>
+    a.isTest || !newAddrs.has(a.contractAddress.toLowerCase())
+  )
+  const merged = [...kept, ...newReal]
+  assert(merged.length === 15, `--real-only upsert: 15 records after merge (got ${merged.length})`)
+  assert(merged.filter(a => a.isTest).length === 11, `--real-only upsert: 11 test records preserved`)
+  assert(merged.filter(a => !a.isTest).length === 4, `--real-only upsert: 4 real records present`)
+  // All new real records should be the updated versions
+  const updatedReal = merged.filter((a: any) => a.updated === true)
+  assert(updatedReal.length === 4, `--real-only upsert: all 4 real records are the updated versions`)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // LAYER 2: ONLINE SMOKE TEST (skippable)
 // ═══════════════════════════════════════════════════════════════════════════
