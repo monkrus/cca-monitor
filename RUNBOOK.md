@@ -89,6 +89,8 @@ pm2 restart all
 ### Version-controlled data
 `data/results.json` is also tracked in git. After each new real auction detection, commit:
 
+> **Rule:** Business files (audit templates, pitch decks, outreach lists, client notes) are gitignored via `audit-template*`, `pitch*`, `outreach*`, `clients/`. Never commit them to the public repo.
+
 ```bash
 git add data/results.json data/bidder-index.json
 git commit -m "Data: new auction detected"

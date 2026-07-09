@@ -1,11 +1,11 @@
 # CCA Monitor
 
-<!-- TODO: replace with published URL -->
+On-chain data collector and live monitor for Uniswap's [Continuous Clearing Auctions](https://blog.uniswap.org/cca) (CCAs). Tracks 15 auctions (4 real, 11 test) across Ethereum, Base, Arbitrum, and Unichain with 15,520 unique bidder addresses indexed. 78 automated checks guard dataset integrity.
+
 <!-- > **Read the analysis:** [CCA Post-Mortem — Who Bids Twice?](https://TODO) -->
+<!-- > **Telegram:** [@cca_auctions](https://t.me/cca_auctions) (free, 30-min delay) | [@cca_monitor_bot](https://t.me/cca_monitor_bot) (premium) -->
 
-On-chain data collector and live monitor for Uniswap's [Continuous Clearing Auctions](https://blog.uniswap.org/cca) (CCAs).
-
-Tracks all CCA deployments across Ethereum, Base, Arbitrum, and Unichain. Pulls auction parameters, outcomes, token identity, decoded prices, and risk flags. Optionally watches the factory contract in real time for new auctions.
+See [RUNBOOK.md](RUNBOOK.md) for operations. Dataset derived from public on-chain events; free to use with attribution.
 
 ## Setup
 
@@ -30,7 +30,7 @@ All three processes auto-restart on crash. See [RUNBOOK.md](RUNBOOK.md) for ops 
 
 | Script | Command | Description |
 |--------|---------|-------------|
-| `analyze` | `npm run analyze` | Collect all known real auctions; add `--include-tests` for test deployments |
+| `analyze` | `npm run analyze` | Collect all auctions (real + test); `--real-only` for fast upsert of real only |
 | `watch` | `npm run watch` | Live-monitor CCA factory for new deployments (all chains) |
 | `bot` | `npm run bot` | Telegram subscription bot with premium/public channels |
 | `intent` | `npm run intent` | Intent-radar: scan pending auctions for early bidding signals |

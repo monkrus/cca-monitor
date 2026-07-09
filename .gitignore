@@ -12,3 +12,7 @@ data/pending-public-alerts.json
 data/posted-milestones.json
 data/last-blocks.json
 data/watch-state.json
+audit-template*
+pitch*
+outreach*
+clients/
