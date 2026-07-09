@@ -38,6 +38,8 @@ All three processes auto-restart on crash. See [RUNBOOK.md](RUNBOOK.md) for ops 
 | `postmortem` | `npm run postmortem [name]` | Full post-mortem stats for an auction (FDV derivation, cross-auction comparison) |
 | `charts` | `npm run charts` | Generate publication-ready PNGs to `charts/` via QuickChart API |
 | `backup` | `npm run backup` | Copy data/*.json to backups/YYYY-MM-DD/, keep 14 days |
+| `verify-data` | `npm run verify-data` | Check dataset integrity against `data/invariants.json` |
+| `test` | `npm test` | Run full test suite (67 tests) + verify-data (11 checks) |
 | `start:all` | `npm run start:all` | Start all long-running processes via pm2 |
 | `status` | `npm run status` | Show pm2 process status |
 
