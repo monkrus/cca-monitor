@@ -1676,7 +1676,22 @@ async function watchForNewAuctions() {
 
   const poll = async () => {
     for (const name of chainNames) {
-      if (lastBlock[name] === undefined) continue
+      // Retry init for chains that failed at startup
+      if (lastBlock[name] === undefined) {
+        try {
+          const client = getClient(name)
+          const currentBlock = await withTimeout(client.getBlockNumber(), 15_000)
+          if (savedBlocks[name]) {
+            const saved = BigInt(savedBlocks[name])
+            lastBlock[name] = saved < currentBlock ? saved : currentBlock
+          } else {
+            lastBlock[name] = currentBlock
+          }
+          console.log(`  Late-init ${name} at block ${lastBlock[name]} (current ${currentBlock})`)
+        } catch {
+          continue
+        }
+      }
       try {
         const client = getClient(name)
         const chainCfg = CHAINS[name]
