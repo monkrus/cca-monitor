@@ -1698,18 +1698,24 @@ async function watchForNewAuctions() {
         const currentBlock = await client.getBlockNumber()
         if (currentBlock <= lastBlock[name]) continue
 
-        // Alchemy free tier limits eth_getLogs to 9-block range.
-        // If we've fallen too far behind, skip ahead to avoid an infinite error loop.
         const gap = currentBlock - lastBlock[name]
-        if (gap > 100n) {
-          console.log(`  ${name}: gap of ${gap} blocks too large for free-tier getLogs, skipping ahead`)
+        const gapSecs = Number(gap) * chainCfg.secsPerBlock
+        const ALCHEMY_MAX_RANGE = 9n
+
+        // If gap represents >10 min of blocks, skip ahead (truly stale — not worth scanning)
+        if (gapSecs > 600) {
+          console.log(`  ${name}: gap of ${gap} blocks (~${Math.round(gapSecs)}s) too stale, skipping ahead`)
           lastBlock[name] = currentBlock
           lastSuccessfulPoll[name] = new Date().toISOString()
           saveLastBlocks()
           continue
         }
 
-        const logs = await client.getLogs({
+        // Use Blockscout (no range limit) when gap exceeds Alchemy's 9-block limit
+        const useBlockscout = gap > ALCHEMY_MAX_RANGE && PUBLIC_RPCS[name]
+        const logsClient = useBlockscout ? getClient(name, true) : client
+
+        const logs = await logsClient.getLogs({
           address: FACTORY_ADDRESS,
           event: parseAbiItem('event AuctionCreated(address indexed auction, address indexed token, uint256 amount, bytes configData)'),
           fromBlock: lastBlock[name] + 1n,
