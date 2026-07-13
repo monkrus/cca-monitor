@@ -11,47 +11,20 @@
  * Install: npm install viem dotenv
  */
 
-import { createPublicClient, http, parseAbiItem, defineChain } from 'viem'
-import { mainnet, base, arbitrum } from 'viem/chains'
 import * as fs from 'fs'
 import * as dotenv from 'dotenv'
-import { checkCrashLoop, writeJsonAtomic, readJsonSafe } from './shared.ts'
+import {
+  unichain, CHAINS, PUBLIC_RPCS, getClient, getLogsChunked,
+  AUCTION_ABI, ERC20_ABI, FACTORY_ABI, BID_EVENT,
+  q96ToDecimal, q96ToPrice,
+  checkCrashLoop, writeJsonAtomic, readJsonSafe,
+} from './shared.ts'
 dotenv.config()
-
-// ─── Unichain definition (not yet in viem) ──────────────────────────────────
-const unichain = defineChain({
-  id: 130,
-  name: 'Unichain',
-  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: ['https://mainnet.unichain.org'] } },
-  blockExplorers: { default: { name: 'Uniscan', url: 'https://uniscan.xyz' } },
-})
 
 // ─── Factory addresses (same across all chains) ─────────────────────────────
 // V1: 0x0000ccaDF55C911a2FbC0BB9d2942Aa77c6FAa1D (early auctions, Dec 2025 – Feb 2026)
 // V2: 0xcccccccae7503cac057829bf2811de42e16e0bd5 (current — wOCT, STRATO, CAP, etc.)
 const FACTORY_ADDRESS = '0xcccccccae7503cac057829bf2811de42e16e0bd5' as const
-
-// ─── Q96 math ────────────────────────────────────────────────────────────────
-const Q96 = 2n ** 96n
-function q96ToDecimal(q96: string | bigint | undefined, decimals = 8): string {
-  if (!q96) return '?'
-  const big = BigInt(q96)
-  const whole = big / Q96
-  const frac = big % Q96
-  const fracDecimal = (frac * 10n ** BigInt(decimals)) / Q96
-  return `${whole}.${fracDecimal.toString().padStart(decimals, '0')}`
-}
-
-function q96ToPrice(q96: string | bigint | undefined, tokenDecimals: number, currencyDecimals: number, displayDecimals = 8): string {
-  if (!q96) return '?'
-  const big = BigInt(q96)
-  const shift = tokenDecimals - currencyDecimals
-  const shifted = shift >= 0
-    ? big * 10n ** BigInt(shift)
-    : big / 10n ** BigInt(-shift)
-  return q96ToDecimal(shifted, displayDecimals)
-}
 
 // ─── Known completed auctions (add more as they happen) ─────────────────────
 // Discovery: Uniswap app URL pattern: app.uniswap.org/explore/auctions/{chain}/{contractAddress}
@@ -105,65 +78,6 @@ const KNOWN_AUCTIONS = [
   { name: 'TEST_MAY26C', chain: 'base', contractAddress: '0x1cdadeeceb6017d19e64b4dc23377d003d174867' as `0x${string}`, startBlock: 46501079n, notes: 'May 26 2026 — test deployment', isTest: true },
   { name: 'TEST_MAY26D', chain: 'base', contractAddress: '0x5107cc753cc9d246de31ec999d549257cde3ae6d' as `0x${string}`, startBlock: 46501539n, notes: 'May 26 2026 — test deployment', isTest: true },
 ]
-
-// ─── ABI fragments we care about ────────────────────────────────────────────
-
-const FACTORY_ABI = [
-  parseAbiItem('event AuctionCreated(address indexed auction, address indexed token, uint256 amount, bytes configData)'),
-] as const
-
-const AUCTION_ABI = [
-  { name: 'currency',               type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
-  { name: 'tokensRecipient',        type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
-  { name: 'fundsRecipient',         type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
-  { name: 'startBlock',             type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint64'  }] },
-  { name: 'endBlock',               type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint64'  }] },
-  { name: 'claimBlock',             type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint64'  }] },
-  { name: 'tickSpacing',            type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-  { name: 'validationHook',         type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
-  { name: 'floorPrice',             type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-  { name: 'clearingPrice',          type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-  { name: 'isGraduated',            type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'bool'    }] },
-  { name: 'currencyRaised',         type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-  { name: 'totalCleared',           type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-  { name: 'token',                  type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
-  parseAbiItem('event CheckpointUpdated(uint256 indexed blockNumber, uint256 clearingPrice, uint24 cumulativeMps)'),
-  parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint128 amount)'),
-] as const
-
-const ERC20_ABI = [
-  { name: 'name',        type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string'  }] },
-  { name: 'symbol',      type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'string'  }] },
-  { name: 'decimals',    type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8'   }] },
-  { name: 'totalSupply', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-] as const
-
-// ─── Chain config ────────────────────────────────────────────────────────────
-const CHAINS: Record<string, { chain: any, secsPerBlock: number, explorer: string }> = {
-  mainnet:  { chain: mainnet,  secsPerBlock: 12,   explorer: 'https://etherscan.io' },
-  base:     { chain: base,     secsPerBlock: 2,    explorer: 'https://basescan.org' },
-  arbitrum: { chain: arbitrum, secsPerBlock: 0.25, explorer: 'https://arbiscan.io' },
-  unichain: { chain: unichain, secsPerBlock: 1,    explorer: 'https://uniscan.xyz' },
-}
-
-// ─── RPC clients ────────────────────────────────────────────────────────────
-const PUBLIC_RPCS: Record<string, string> = {
-  mainnet:  'https://eth.blockscout.com/api/eth-rpc',
-  base:     'https://base.blockscout.com/api/eth-rpc',
-  arbitrum: 'https://arbitrum.blockscout.com/api/eth-rpc',
-}
-
-function getClient(chainName: string, usePublicRpc = false) {
-  const rpcUrl = usePublicRpc
-    ? PUBLIC_RPCS[chainName]
-    : process.env[`RPC_URL_${chainName.toUpperCase()}`]
-  const chainCfg = CHAINS[chainName]
-  if (!chainCfg) throw new Error(`Unknown chain: ${chainName}`)
-  return createPublicClient({
-    chain: chainCfg.chain,
-    transport: http(rpcUrl || undefined),
-  })
-}
 
 // ─── Webhook alerting ────────────────────────────────────────────────────────
 async function sendWebhook(payload: Record<string, any>) {
@@ -347,105 +261,6 @@ function appendResult(result: Record<string, any>) {
   console.log(`  Saved to ${file} (${existing.auctions.length} auctions total)`)
 }
 
-// ─── Chunked getLogs with retry ──────────────────────────────────────────────
-const LOG_CHUNK_SIZE = 5000n
-const MAX_LOG_RANGE = 50000n
-
-async function getLogsChunked(
-  client: ReturnType<typeof getClient>,
-  params: { address: `0x${string}`, event: any, fromBlock: bigint, toBlock: bigint },
-  uncapped = false,
-  chainName?: string,
-) {
-  const wasCapped = !uncapped && params.toBlock - params.fromBlock > MAX_LOG_RANGE
-  const cappedTo = wasCapped
-    ? params.fromBlock + MAX_LOG_RANGE
-    : params.toBlock
-  const totalRange = cappedTo - params.fromBlock
-
-  const CHUNK_FLOOR = 9n
-  const MAX_CHUNKS = 2000n
-  let loggedRangeError = false
-
-  const isRangeError = (msg: string) =>
-    /block range|range.{0,5}too large|exceeds|limited to|max is/i.test(msg)
-
-  const doScan = async (scanClient: ReturnType<typeof getClient>, initialChunkSize: bigint) => {
-    const allLogs: any[] = []
-    let from = params.fromBlock
-    let chunkSize = initialChunkSize
-    let retries = 0
-    let chunks = 0
-
-    while (from <= cappedTo) {
-      const to = from + chunkSize < cappedTo ? from + chunkSize : cappedTo
-      try {
-        const logs = await scanClient.getLogs({
-          address: params.address,
-          event: params.event,
-          fromBlock: from,
-          toBlock: to,
-        })
-        allLogs.push(...logs)
-        from = to + 1n
-        retries = 0
-        chunks++
-        if (chunks % 100 === 0) {
-          const pct = totalRange > 0n ? Number((from - params.fromBlock) * 100n / totalRange) : 100
-          console.log(`  ...${pct}% scanned (${chunks} chunks, ${allLogs.length} events)`)
-        }
-      } catch (err: any) {
-        const msg = err?.details || err?.message || ''
-
-        // Rate limit — backoff and retry
-        if (/too many|429/i.test(msg) && retries < 5) {
-          retries++
-          await new Promise(r => setTimeout(r, 1000 * retries))
-          continue
-        }
-
-        // Block range error — halve chunk size and retry same segment
-        if (isRangeError(msg)) {
-          if (!loggedRangeError) {
-            console.log(`  Block range error: ${msg}`)
-            loggedRangeError = true
-          }
-          const newSize = chunkSize / 2n < CHUNK_FLOOR ? CHUNK_FLOOR : chunkSize / 2n
-          if (newSize < chunkSize) {
-            chunkSize = newSize
-            if (totalRange / chunkSize > MAX_CHUNKS) throw err
-            console.log(`  Adapting chunk size to ${chunkSize} blocks`)
-            continue
-          }
-          throw err // at floor, can't reduce further
-        }
-
-        throw err
-      }
-    }
-    return allLogs
-  }
-
-  // Try primary client
-  try {
-    const logs = await doScan(client, LOG_CHUNK_SIZE)
-    if (wasCapped) console.log(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
-    return { logs, wasCapped }
-  } catch (primaryErr: any) {
-    const msg = primaryErr?.details || primaryErr?.message || ''
-    if (!chainName || !isRangeError(msg)) throw primaryErr
-  }
-
-  // Fallback: public RPC with original chunk size
-  console.log(`  Primary RPC failed, trying public RPC fallback...`)
-  loggedRangeError = false
-  const publicClient = getClient(chainName, true)
-  const logs = await doScan(publicClient, LOG_CHUNK_SIZE)
-  console.log(`  Scan completed via public RPC fallback`)
-  if (wasCapped) console.log(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
-  return { logs, wasCapped }
-}
-
 // ─── HISTORICAL: Pull params + outcomes from a known auction ────────────────
 async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
   console.log(`\n${'='.repeat(60)}`)
@@ -627,7 +442,7 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
     try {
       const { logs: bidLogs, wasCapped } = await getLogsChunked(client, {
         address: auction.contractAddress,
-        event: parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint128 amount)'),
+        event: BID_EVENT,
         fromBlock: logFromBlock,
         toBlock: logToBlock,
       }, true, auction.chain)
@@ -1565,7 +1380,7 @@ async function pollBids() {
 
       const bidLogs = await client.getLogs({
         address: auction.address,
-        event: parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint128 amount)'),
+        event: BID_EVENT,
         fromBlock: auction.lastScannedBlock + 1n,
         toBlock: scanTo,
       })
@@ -1717,7 +1532,7 @@ async function watchForNewAuctions() {
 
         const logs = await logsClient.getLogs({
           address: FACTORY_ADDRESS,
-          event: parseAbiItem('event AuctionCreated(address indexed auction, address indexed token, uint256 amount, bytes configData)'),
+          event: FACTORY_ABI[0],
           fromBlock: lastBlock[name] + 1n,
           toBlock: currentBlock,
         })

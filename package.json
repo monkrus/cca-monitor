@@ -1,12 +1,19 @@
 {
   "name": "cca-monitor",
   "version": "1.0.0",
-  "description": "CCA auction data collector and new auction monitor",
+  "description": "On-chain data collector and live monitor for Uniswap Continuous Clearing Auctions",
   "type": "module",
+  "license": "MIT",
+  "author": "monkrus",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/monkrus/cca-monitor.git"
+  },
+  "keywords": ["uniswap", "cca", "auction", "ethereum", "defi", "viem"],
   "scripts": {
     "analyze": "npx tsx cca-collector.ts analyze",
     "watch": "npx tsx cca-collector.ts watch",
-    "dashboard": "npx serve . -l 3000",
+    "dashboard": "cp data/results.json public/results.json && npx serve public -l 3000",
     "bot": "npx tsx bot-server.ts",
     "intent": "npx tsx intent-radar.ts",
     "profile": "npx tsx bidder-profile.ts",
@@ -16,13 +23,15 @@
     "verify-data": "npx tsx verify-data.ts",
     "start:all": "pm2 start ecosystem.config.cjs",
     "status": "pm2 status",
-    "test": "npx tsx test.ts && npx tsx verify-data.ts"
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit && npx tsx test.ts && npx tsx verify-data.ts"
   },
   "dependencies": {
-    "viem": "^2.21.0",
-    "dotenv": "^16.4.0"
+    "dotenv": "^16.4.0",
+    "viem": "^2.21.0"
   },
   "devDependencies": {
+    "@types/node": "^26.1.1",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }

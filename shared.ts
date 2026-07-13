@@ -73,6 +73,10 @@ export const ERC20_ABI = [
 
 export const BID_EVENT = parseAbiItem('event BidSubmitted(uint256 indexed id, address indexed owner, uint256 price, uint128 amount)')
 
+export const FACTORY_ABI = [
+  parseAbiItem('event AuctionCreated(address indexed auction, address indexed token, uint256 amount, bytes configData)'),
+] as const
+
 // ─── Chunked getLogs with adaptive retry ─────────────────────────────────────
 const LOG_CHUNK_SIZE = 5000n
 const MAX_LOG_RANGE = 50000n

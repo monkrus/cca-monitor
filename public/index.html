@@ -137,9 +137,9 @@
 <script>
 async function load() {
   try {
-    // Try local first (dev), then GitHub Pages path, then raw GitHub
+    // Try local copy first (dev), then raw GitHub (production)
     const urls = [
-      'data/results.json',
+      'results.json',
       'https://raw.githubusercontent.com/monkrus/cca-monitor/master/data/results.json',
     ];
     let data;

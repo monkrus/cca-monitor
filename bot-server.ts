@@ -37,6 +37,7 @@ interface Subscriber {
   subscribedAt: string
   expiresAt: string
   paymentId: string
+  status?: 'active' | 'expired' | 'refunded'
 }
 
 const SUBS_FILE = 'data/subscribers.json'
@@ -51,8 +52,9 @@ function saveSubscribers(subs: Subscriber[]) {
 
 function isSubscribed(userId: number): Subscriber | null {
   const subs = loadSubscribers()
-  const sub = subs.find(s => s.userId === userId)
+  const sub = subs.find(s => s.userId === userId && s.status !== 'refunded')
   if (!sub) return null
+  if (sub.status === 'expired') return null
   if (sub.tier === 'lifetime') return sub
   if (new Date(sub.expiresAt) < new Date()) return null
   return sub
@@ -98,14 +100,15 @@ async function handleStart(chatId: number) {
 
 async function handleSubscribe(chatId: number, userId: number) {
   const existing = isSubscribed(userId)
-  if (existing) {
-    if (existing.tier === 'lifetime') {
-      await sendMessage(chatId, `You have <b>Lifetime</b> access. No need to resubscribe!`)
-      return
-    }
-    const expires = new Date(existing.expiresAt)
-    await sendMessage(chatId, `You already have an active <b>${TIERS[existing.tier]?.label || 'Premium'}</b> subscription.\n\nExpires: <b>${expires.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</b>`)
+  if (existing?.tier === 'lifetime') {
+    await sendMessage(chatId, `You have <b>Lifetime</b> access. No need to resubscribe!`)
     return
+  }
+
+  if (existing) {
+    const expires = new Date(existing.expiresAt)
+    const daysLeft = Math.ceil((expires.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    await sendMessage(chatId, `You have an active <b>${TIERS[existing.tier]?.label || 'Premium'}</b> subscription (${daysLeft} days left).\n\nYou can renew now — the new time will be added to your remaining days.`)
   }
 
   await sendMessage(chatId, `<b>Choose your plan:</b>`, {
@@ -165,15 +168,26 @@ async function handleSuccessfulPayment(chatId: number, userId: number, username:
   const tier = TIERS[tierKey] ? tierKey : 'monthly' as TierKey
   const t = TIERS[tier]
 
-  // Calculate expiry
-  const expiresAt = tier === 'lifetime'
-    ? new Date('2099-12-31T23:59:59Z').toISOString()
-    : new Date(Date.now() + t.days! * 24 * 60 * 60 * 1000).toISOString()
+  // Calculate expiry — extend if there's remaining time
+  let expiresAt: string
+  if (tier === 'lifetime') {
+    expiresAt = new Date('2099-12-31T23:59:59Z').toISOString()
+  } else {
+    const existing = isSubscribed(userId)
+    const base = existing && new Date(existing.expiresAt) > new Date()
+      ? new Date(existing.expiresAt).getTime()
+      : Date.now()
+    expiresAt = new Date(base + t.days! * 24 * 60 * 60 * 1000).toISOString()
+  }
 
-  // Save subscription
+  // Save subscription (keep old records for history)
   const subs = loadSubscribers()
-  const filtered = subs.filter(s => s.userId !== userId)
-  filtered.push({
+  for (const s of subs) {
+    if (s.userId === userId && s.status !== 'refunded') {
+      s.status = 'expired'
+    }
+  }
+  subs.push({
     userId,
     username,
     firstName,
@@ -181,8 +195,9 @@ async function handleSuccessfulPayment(chatId: number, userId: number, username:
     subscribedAt: new Date().toISOString(),
     expiresAt,
     paymentId,
+    status: 'active',
   })
-  saveSubscribers(filtered)
+  saveSubscribers(subs)
 
   const durationText = tier === 'lifetime' ? 'forever' : `${t.days} days`
 
@@ -314,6 +329,24 @@ async function poll() {
         continue
       }
 
+      // Refunded payment
+      if (msg.refunded_payment) {
+        const subs = loadSubscribers()
+        const refundChargeId = msg.refunded_payment.telegram_payment_charge_id
+        for (const s of subs) {
+          if (s.paymentId === refundChargeId) {
+            s.status = 'refunded'
+          }
+        }
+        saveSubscribers(subs)
+        console.log(`Refund processed: user ${userId}, charge ${refundChargeId}`)
+        try {
+          await api('banChatMember', { chat_id: PREMIUM_CHANNEL_ID, user_id: userId })
+          await api('unbanChatMember', { chat_id: PREMIUM_CHANNEL_ID, user_id: userId })
+        } catch {}
+        continue
+      }
+
       // Commands
       if (text === '/start') await handleStart(chatId)
       else if (text === '/subscribe') await handleSubscribe(chatId, userId)
@@ -322,6 +355,7 @@ async function poll() {
     }
   } catch (err: any) {
     console.error(`Poll error: ${err.message}`)
+    await new Promise(r => setTimeout(r, 5000))
   }
 }
 
@@ -329,18 +363,21 @@ async function poll() {
 async function checkExpiries() {
   const subs = loadSubscribers()
   const now = new Date()
+  let changed = false
   for (const sub of subs) {
     if (sub.tier === 'lifetime') continue
+    if (sub.status === 'expired' || sub.status === 'refunded') continue
     if (new Date(sub.expiresAt) < now) {
       try {
         await api('banChatMember', { chat_id: PREMIUM_CHANNEL_ID, user_id: sub.userId })
         await api('unbanChatMember', { chat_id: PREMIUM_CHANNEL_ID, user_id: sub.userId })
         console.log(`Expired: ${sub.username || sub.userId} (${sub.tier})`)
       } catch {}
+      sub.status = 'expired'
+      changed = true
     }
   }
-  const active = subs.filter(s => s.tier === 'lifetime' || new Date(s.expiresAt) >= now)
-  if (active.length !== subs.length) saveSubscribers(active)
+  if (changed) saveSubscribers(subs)
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────

@@ -10,27 +10,8 @@ import { mainnet } from 'viem/chains'
 import * as dotenv from 'dotenv'
 dotenv.config()
 
-// ─── Inline the functions under test (no export gymnastics) ─────────────────
-const Q96 = 2n ** 96n
-
-function q96ToDecimal(q96: string | bigint | undefined, decimals = 8): string {
-  if (!q96) return '?'
-  const big = BigInt(q96)
-  const whole = big / Q96
-  const frac = big % Q96
-  const fracDecimal = (frac * 10n ** BigInt(decimals)) / Q96
-  return `${whole}.${fracDecimal.toString().padStart(decimals, '0')}`
-}
-
-function q96ToPrice(q96: string | bigint | undefined, tokenDecimals: number, currencyDecimals: number, displayDecimals = 8): string {
-  if (!q96) return '?'
-  const big = BigInt(q96)
-  const shift = tokenDecimals - currencyDecimals
-  const shifted = shift >= 0
-    ? big * 10n ** BigInt(shift)
-    : big / 10n ** BigInt(-shift)
-  return q96ToDecimal(shifted, displayDecimals)
-}
+// ─── Import production code under test ──────────────────────────────────────
+import { q96ToDecimal, q96ToPrice, AUCTION_ABI } from './shared.ts'
 
 // ─── Test runner ────────────────────────────────────────────────────────────
 let passed = 0
@@ -209,12 +190,12 @@ const COOLDOWN_MS = 24 * 60 * 60 * 1000
   const withinCooldown = (now - lastAlert) < COOLDOWN_MS
   assert(withinCooldown === true, 'cooldown: 1h ago = within cooldown')
 
-  const lastAlertBand = -10
-  const currentBand = -10
+  const lastAlertBand: number = -10
+  const currentBand: number = -10
   const newBand = currentBand !== lastAlertBand && currentBand < lastAlertBand
   assert(newBand === false, 'cooldown: same band = not new band')
 
-  const currentBand2 = -20
+  const currentBand2: number = -20
   const newBand2 = currentBand2 !== lastAlertBand && currentBand2 < lastAlertBand
   assert(newBand2 === true, 'cooldown: -20 after -10 = new band (bypasses cooldown)')
 }
@@ -415,11 +396,6 @@ if (process.env.SKIP_RPC === '1') {
   console.log('\n--- Layer 2: Online smoke test (AZTEC mainnet) ---\n')
 
   const AZTEC_ADDRESS = '0x608c4e792c65f5527b3f70715dea44d3b302f4ee' as const
-  const AUCTION_ABI = [
-    { name: 'floorPrice', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-    { name: 'clearingPrice', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-    { name: 'isGraduated', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'bool' }] },
-  ] as const
 
   const rpcUrl = process.env.RPC_URL_MAINNET
   const client = createPublicClient({

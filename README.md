@@ -1,5 +1,7 @@
 # CCA Monitor
 
+[![CI](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml)
+
 On-chain data collector and live monitor for Uniswap's [Continuous Clearing Auctions](https://blog.uniswap.org/cca) (CCAs). Tracks 15 auctions (4 real, 11 test) across Ethereum, Base, Arbitrum, and Unichain with 15,520 unique bidder addresses indexed. 78 automated checks guard dataset integrity.
 
 <!-- > **Read the analysis:** [CCA Post-Mortem — Who Bids Twice?](https://TODO) -->
@@ -39,7 +41,8 @@ All three processes auto-restart on crash. See [RUNBOOK.md](RUNBOOK.md) for ops 
 | `charts` | `npm run charts` | Generate publication-ready PNGs to `charts/` via QuickChart API |
 | `backup` | `npm run backup` | Copy data/*.json to backups/YYYY-MM-DD/, keep 14 days |
 | `verify-data` | `npm run verify-data` | Check dataset integrity against `data/invariants.json` |
-| `test` | `npm test` | Run full test suite (67 tests) + verify-data (11 checks) |
+| `typecheck` | `npm run typecheck` | Run TypeScript strict type-check (no emit) |
+| `test` | `npm test` | Type-check + test suite (67 tests) + verify-data (11 checks) |
 | `start:all` | `npm run start:all` | Start all long-running processes via pm2 |
 | `status` | `npm run status` | Show pm2 process status |
 
