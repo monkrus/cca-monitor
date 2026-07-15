@@ -22,9 +22,12 @@ import {
 dotenv.config()
 
 // ─── Factory addresses (same across all chains) ─────────────────────────────
-// V1: 0x0000ccaDF55C911a2FbC0BB9d2942Aa77c6FAa1D (early auctions, Dec 2025 – Feb 2026)
-// V2: 0xcccccccae7503cac057829bf2811de42e16e0bd5 (current — wOCT, STRATO, CAP, etc.)
-const FACTORY_ADDRESS = '0xcccccccae7503cac057829bf2811de42e16e0bd5' as const
+// V1: early auctions (AZTEC, Dec 2025 – Feb 2026)
+// V2: current (wOCT, STRATO, CAP, etc.)
+const FACTORY_ADDRESSES = [
+  '0x0000ccaDF55C911a2FbC0BB9d2942Aa77c6FAa1D',
+  '0xcccccccae7503cac057829bf2811de42e16e0bd5',
+] as const
 
 // ─── Known completed auctions (add more as they happen) ─────────────────────
 // Discovery: Uniswap app URL pattern: app.uniswap.org/explore/auctions/{chain}/{contractAddress}
@@ -1437,7 +1440,7 @@ async function watchForNewAuctions() {
   await checkCrashLoop('cca-watch')
   console.log('\nStarting new auction monitor...')
   console.log('Watching factory on: Ethereum, Base, Arbitrum, Unichain')
-  console.log('Factory address:', FACTORY_ADDRESS)
+  console.log('Factory addresses:', FACTORY_ADDRESSES.join(', '))
   if (process.env.WEBHOOK_URL) console.log('Webhook: enabled')
   if (process.env.TELEGRAM_BOT_TOKEN) {
     const channels = []
@@ -1530,12 +1533,14 @@ async function watchForNewAuctions() {
         const useBlockscout = gap > ALCHEMY_MAX_RANGE && PUBLIC_RPCS[name]
         const logsClient = useBlockscout ? getClient(name, true) : client
 
-        const logs = await logsClient.getLogs({
-          address: FACTORY_ADDRESS,
-          event: FACTORY_ABI[0],
-          fromBlock: lastBlock[name] + 1n,
-          toBlock: currentBlock,
-        })
+        const logs = (await Promise.all(FACTORY_ADDRESSES.map(addr =>
+          logsClient.getLogs({
+            address: addr,
+            event: FACTORY_ABI[0],
+            fromBlock: lastBlock[name] + 1n,
+            toBlock: currentBlock,
+          })
+        ))).flat()
 
         for (const log of logs) {
           const { auction, token } = log.args as any
