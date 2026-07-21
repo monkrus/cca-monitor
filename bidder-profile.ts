@@ -30,11 +30,11 @@ async function main() {
     const top = index[0]
     if (!top) { console.error('No bidder-index.json found. Run npm run analyze first.'); process.exit(1) }
     targetAddr = top.address
-    console.log(`No address provided — defaulting to top whale: ${targetAddr} (${top.auctionCount} auctions)`)
+    console.error(`No address provided — defaulting to top whale: ${targetAddr} (${top.auctionCount} auctions)`)
   }
 
-  console.log(`\nPROFILE: ${targetAddr}`)
-  console.log('='.repeat(70))
+  console.error(`\nPROFILE: ${targetAddr}`)
+  console.error('='.repeat(70))
 
   const data = loadResults()
   const auctions = (data.auctions as any[]).filter((a: any) => !a.isTest)
@@ -43,32 +43,32 @@ async function main() {
   const index = loadBidderIndex()
   const entry = index.find(e => e.address === targetAddr)
   if (!entry) {
-    console.log('Address not found in bidder index.')
+    console.error('Address not found in bidder index.')
     process.exit(1)
   }
 
-  console.log(`Participated in ${entry.auctionCount} auction(s): ${entry.auctions.join(', ')}\n`)
+  console.error(`Participated in ${entry.auctionCount} auction(s): ${entry.auctions.join(', ')}\n`)
 
   const summaryRows: string[] = []
   const mdRows: { auction: string; bids: number; committed: string; entryPct: string; exitPct: string; vsClear: string }[] = []
 
   for (const auctionName of entry.auctions) {
     const auctionData = auctions.find((a: any) => a.name === auctionName)
-    if (!auctionData) { console.log(`  ${auctionName}: not in results.json, skipping`); continue }
+    if (!auctionData) { console.error(`  ${auctionName}: not in results.json, skipping`); continue }
 
     const chain = auctionData.chain
     const address = auctionData.tokenAddress ? auctionData.name : auctionData.name // for logging
     const contractAddr = findContractAddress(auctionData)
-    if (!contractAddr) { console.log(`  ${auctionName}: no contract address found, skipping`); continue }
+    if (!contractAddr) { console.error(`  ${auctionName}: no contract address found, skipping`); continue }
 
-    console.log(`── ${auctionName} (${chain}) ──`)
+    console.error(`── ${auctionName} (${chain}) ──`)
 
     const client = getClient(chain)
     const startBlock = BigInt(auctionData.startBlock)
     const endBlock = BigInt(auctionData.endBlock)
 
     // Fetch all BidSubmitted events for this auction
-    console.log(`  Scanning bids (blocks ${startBlock}–${endBlock})...`)
+    console.error(`  Scanning bids (blocks ${startBlock}–${endBlock})...`)
     const { logs: allBids } = await getLogsChunked(client, {
       address: contractAddr as `0x${string}`,
       event: BID_EVENT,
@@ -79,7 +79,7 @@ async function main() {
     // Filter to this bidder
     const myBids = allBids.filter((log: any) => (log.args.owner as string).toLowerCase() === targetAddr)
     if (myBids.length === 0) {
-      console.log(`  No bids found (may be event parsing issue)`)
+      console.error(`  No bids found (may be event parsing issue)`)
       continue
     }
 
@@ -133,14 +133,14 @@ async function main() {
     const floorDecoded = auctionData.floorPrice || '?'
     const clearingDecoded = auctionData.clearingPrice || '?'
 
-    console.log(`  Bids: ${myBids.length}`)
-    console.log(`  Total committed: ${amtStr}`)
-    console.log(`  Timing: entered at ${entryPct}% elapsed, last bid at ${exitPct}%`)
-    console.log(`  Bid price range: ${minPriceDecoded} – ${maxPriceDecoded}`)
-    console.log(`  Floor: ${floorDecoded} | Clearing: ${clearingDecoded}`)
-    if (priceAnalysis) console.log(`  Fill estimate: ${priceAnalysis}`)
-    console.log(`  Graduated: ${auctionData.graduated ? 'yes' : 'no'}`)
-    console.log()
+    console.error(`  Bids: ${myBids.length}`)
+    console.error(`  Total committed: ${amtStr}`)
+    console.error(`  Timing: entered at ${entryPct}% elapsed, last bid at ${exitPct}%`)
+    console.error(`  Bid price range: ${minPriceDecoded} – ${maxPriceDecoded}`)
+    console.error(`  Floor: ${floorDecoded} | Clearing: ${clearingDecoded}`)
+    if (priceAnalysis) console.error(`  Fill estimate: ${priceAnalysis}`)
+    console.error(`  Graduated: ${auctionData.graduated ? 'yes' : 'no'}`)
+    console.error()
 
     summaryRows.push(
       `${auctionName.padEnd(8)} ${String(myBids.length).padStart(4)} bids  ${amtStr.padStart(22)}  entry ${entryPct.padStart(5)}%  last ${exitPct.padStart(5)}%  ${priceAnalysis || ''}`
@@ -172,6 +172,7 @@ async function main() {
     console.log()
     for (const row of summaryRows) console.log(`  ${row}`)
   }
+  console.error(`\nProfile complete.`)
 }
 
 // ─── Helper: find contract address from results ─────────────────────────────

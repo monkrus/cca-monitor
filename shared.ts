@@ -120,7 +120,7 @@ export async function getLogsChunked(
         chunks++
         if (chunks % 100 === 0) {
           const pct = totalRange > 0n ? Number((from - params.fromBlock) * 100n / totalRange) : 100
-          console.log(`  ...${pct}% scanned (${chunks} chunks, ${allLogs.length} events)`)
+          console.error(`  ...${pct}% scanned (${chunks} chunks, ${allLogs.length} events)`)
         }
       } catch (err: any) {
         const msg = err?.details || err?.message || ''
@@ -131,7 +131,7 @@ export async function getLogsChunked(
         }
         if (isRangeError(msg)) {
           if (!loggedRangeError) {
-            console.log(`  Block range error: ${msg}`)
+            console.error(`  Block range error: ${msg}`)
             loggedRangeError = true
           }
           // Free-tier RPCs have tiny limits (e.g., 10 blocks) — skip the
@@ -143,7 +143,7 @@ export async function getLogsChunked(
           if (newSize < chunkSize) {
             chunkSize = newSize
             if (totalRange / chunkSize > MAX_CHUNKS) throw err
-            console.log(`  Adapting chunk size to ${chunkSize} blocks`)
+            console.error(`  Adapting chunk size to ${chunkSize} blocks`)
             continue
           }
           throw err
@@ -156,19 +156,19 @@ export async function getLogsChunked(
 
   try {
     const logs = await doScan(client, LOG_CHUNK_SIZE)
-    if (wasCapped) console.log(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
+    if (wasCapped) console.error(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
     return { logs, wasCapped }
   } catch (primaryErr: any) {
     const msg = primaryErr?.details || primaryErr?.message || ''
     if (!chainName || !isRangeError(msg)) throw primaryErr
   }
 
-  console.log(`  Primary RPC failed, trying public RPC fallback...`)
+  console.error(`  Primary RPC failed, trying public RPC fallback...`)
   loggedRangeError = false
   const publicClient = getClient(chainName, true)
   const logs = await doScan(publicClient, LOG_CHUNK_SIZE)
-  console.log(`  Scan completed via public RPC fallback`)
-  if (wasCapped) console.log(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
+  console.error(`  Scan completed via public RPC fallback`)
+  if (wasCapped) console.error(`  (scanned first ${MAX_LOG_RANGE} of ${params.toBlock - params.fromBlock} blocks)`)
   return { logs, wasCapped }
 }
 

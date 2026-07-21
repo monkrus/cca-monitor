@@ -107,7 +107,7 @@ Computed by the `analyze` summary across all 4 real auctions:
 
 - **15,520** unique bidder addresses
 - **86** addresses bid in 2+ auctions (0.55% recurrence rate)
-- Repeat bidders participate in hooked (KYC) auctions **62.4%** of the time vs **93.3%** for single-auction bidders — experienced bidders are more willing to enter open auctions
+- Repeat bidders participate in hooked (KYC) auctions **62.4%** of the time vs **93.3%** for single-auction bidders — experienced bidders are more willing to enter open auctions (measured per auction-participation, not per unique address: 86 repeat addresses generate 113 hooked-auction entries)
 - All 4 real auctions graduated successfully
 
 ## Architecture

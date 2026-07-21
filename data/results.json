@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-08T16:21:33.528Z",
+  "timestamp": "2026-07-21T02:31:30.467Z",
   "summary": {
     "total": 15,
     "real": 4,
@@ -28,7 +28,7 @@
       "tokenAddress": "0x4B00C30cEBA3F188407C6e6741cc5b43561f1F6e",
       "tokenName": "VirtualAztecToken",
       "tokenSymbol": "VAZT",
-      "tokenSupply": "35,875,470",
+      "tokenSupply": "35,872,313",
       "startBlock": "23790741",
       "endBlock": "23955276",
       "floorPrice_Q96": "753956294022871543408300",
@@ -65,7 +65,7 @@
       "tokenAddress": "0x4c93B9FbF7Fd1777CCBcBc538B1d0a8b58fB1ad6",
       "tokenName": "Ethereum STRATO",
       "tokenSymbol": "STRATO",
-      "tokenSupply": "3,028,158",
+      "tokenSupply": "2,504,678",
       "startBlock": "25237800",
       "endBlock": "25295401",
       "floorPrice_Q96": "10424758225561097051782096",
@@ -103,7 +103,7 @@
       "tokenAddress": "0x4647e1fE715c9e23959022C2416C71867F5a6E80",
       "tokenName": "Wrapped OCT",
       "tokenSymbol": "wOCT",
-      "tokenSupply": "196,957,368",
+      "tokenSupply": "197,789,585",
       "startBlock": "24870973",
       "endBlock": "24921374",
       "floorPrice_Q96": "4294967300",
@@ -140,7 +140,7 @@
       "tokenAddress": "0x9999B7E3cc6979223Ff1aF980b7D8B90B75d9999",
       "tokenName": "Cap Redeemable Token",
       "tokenSymbol": "rCAP",
-      "tokenSupply": "9,600,586,065",
+      "tokenSupply": "9,600,187,000",
       "startBlock": "25273679",
       "endBlock": "25338479",
       "floorPrice_Q96": "594211218857000",
@@ -390,7 +390,9 @@
         "NO_HOOK: no validation hook",
         "DID_NOT_GRADUATE: auction failed to reach required raise"
       ],
-      "bidScanPartial": true
+      "uniqueBidders": 1,
+      "totalBids": 1,
+      "bidScanPartial": false
     },
     {
       "name": "TEST_JAN19",
