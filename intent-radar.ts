@@ -20,7 +20,6 @@ const POLL_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
 
 // ─── Feed sources ───────────────────────────────────────────────────────────
 const DEFAULT_FEEDS = [
-  'https://blog.uniswap.org/rss.xml',
   'https://gov.uniswap.org/latest.rss',
   'https://cryptopanic.com/news/rss/',
 ]

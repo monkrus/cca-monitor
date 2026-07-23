@@ -639,9 +639,8 @@ async function sendDailySummary() {
   const dateKey = now.toISOString().slice(0, 10) // YYYY-MM-DD
   if (dateKey === lastDailySummary) return
 
-  // Send at 9:00 UTC
-  if (now.getUTCHours() !== 9) return
-  lastDailySummary = dateKey
+  // Send at or after 9:00 UTC (catch up if process was down at 9)
+  if (now.getUTCHours() < 9) return
 
   const lines = [
     `📋 <b>CCA Daily Summary</b> — ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`,
@@ -691,6 +690,7 @@ async function sendDailySummary() {
   lines.push(``, `<i>Get instant alerts: @cca_monitor_bot → /subscribe</i>`)
 
   await routeAlert('daily-summary', lines.join('\n'))
+  lastDailySummary = dateKey
   saveWatchState()
   console.log(`Daily summary sent (${dateKey})`)
 }
@@ -753,8 +753,7 @@ async function sendHeartbeat() {
   const now = new Date()
   const dateKey = now.toISOString().slice(0, 10)
   if (dateKey === lastHeartbeat) return
-  if (now.getUTCHours() !== 9) return
-  lastHeartbeat = dateKey
+  if (now.getUTCHours() < 9) return
 
   const dmId = TELEGRAM_TARGETS.dm
   if (!dmId) return
@@ -842,6 +841,7 @@ async function sendHeartbeat() {
   ].filter(Boolean).join('\n')
 
   await routeAlert('heartbeat', msg)
+  lastHeartbeat = dateKey
   saveWatchState()
   console.log(`Heartbeat sent (${dateKey})`)
 }
@@ -852,10 +852,9 @@ let lastWeeklyDigest = watchState.lastWeeklyDigest || ''
 async function sendWeeklyDigest() {
   const now = new Date()
   if (now.getUTCDay() !== 1) return // Monday only
-  if (now.getUTCHours() !== 9) return
+  if (now.getUTCHours() < 9) return
   const weekKey = now.toISOString().slice(0, 10)
   if (weekKey === lastWeeklyDigest) return
-  lastWeeklyDigest = weekKey
 
   const dmId = TELEGRAM_TARGETS.dm
   if (!dmId) return
@@ -935,6 +934,7 @@ async function sendWeeklyDigest() {
   ].join('\n')
 
   await routeAlert('weekly-digest', msg)
+  lastWeeklyDigest = weekKey
   saveWatchState()
   console.log(`Weekly digest sent (${weekKey})`)
 }
@@ -971,14 +971,12 @@ const DID_YOU_KNOW_POOL = [
 async function sendStateCCA(dryRun = false) {
   const now = new Date()
   if (now.getUTCDay() !== 3) return // Wednesday only
-  if (now.getUTCHours() !== 15) return
+  if (now.getUTCHours() < 15) return
   const weekKey = now.toISOString().slice(0, 10)
   if (weekKey === lastStateCCA) return
 
   // Skip if there are active auctions (daily summary already covers it)
   if (trackedAuctions.length > 0) return
-
-  lastStateCCA = weekKey
 
   const publicId = TELEGRAM_TARGETS.public
   if (!publicId && !dryRun) return
@@ -1023,6 +1021,7 @@ async function sendStateCCA(dryRun = false) {
   }
 
   await routeAlert('state-of-cca', lines)
+  lastStateCCA = weekKey
   console.log(`State of CCA post sent (${weekKey})`)
 }
 
@@ -1608,7 +1607,11 @@ async function watchForNewAuctions() {
   const priceInterval = setInterval(pollPrices, PRICE_CHECK_INTERVAL)
   const endIntelInterval = setInterval(checkEndAlerts, 5 * 60_000) // check every 5 min
   const alertFlushInterval = setInterval(flushPendingAlerts, 60_000)
-  const dailyInterval = setInterval(async () => { await sendDailySummary(); await sendHeartbeat(); await sendWeeklyDigest(); await sendStateCCA(); await checkMilestones(); }, 60_000)
+  const dailyInterval = setInterval(async () => {
+    for (const fn of [sendDailySummary, sendHeartbeat, sendWeeklyDigest, sendStateCCA, checkMilestones]) {
+      try { await fn() } catch (e) { console.error(`  Scheduled task ${fn.name} error:`, (e as Error).message) }
+    }
+  }, 60_000)
 
   // Init graduated token price tracking
   console.log('\nInitializing token price tracking...')
