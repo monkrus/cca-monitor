@@ -40,5 +40,18 @@ module.exports = {
       merge_logs: true,
       time: true,
     },
+    {
+      name: 'cca-watchdog',
+      script: 'watchdog.ts',
+      interpreter: 'node',
+      interpreter_args: '--import tsx/esm',
+      autorestart: true,
+      max_memory_restart: '100M',
+      restart_delay: 10000,
+      out_file: 'logs/watchdog-out.log',
+      error_file: 'logs/watchdog-err.log',
+      merge_logs: true,
+      time: true,
+    },
   ],
 }
