@@ -53,5 +53,17 @@ module.exports = {
       merge_logs: true,
       time: true,
     },
+    {
+      name: 'cca-backup',
+      script: 'backup.ts',
+      interpreter: 'node',
+      interpreter_args: '--import tsx/esm',
+      autorestart: false,
+      cron_restart: '0 3 * * *',
+      out_file: 'logs/backup-out.log',
+      error_file: 'logs/backup-err.log',
+      merge_logs: true,
+      time: true,
+    },
   ],
 }

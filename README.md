@@ -39,6 +39,7 @@ All three processes auto-restart on crash. See [RUNBOOK.md](RUNBOOK.md) for ops 
 | `profile` | `npm run profile [addr]` | Deep-dive a single bidder across all real auctions |
 | `postmortem` | `npm run postmortem [name]` | Full post-mortem stats for an auction (FDV derivation, cross-auction comparison) |
 | `charts` | `npm run charts` | Generate publication-ready PNGs to `charts/` via QuickChart API |
+| `bid-helper` | `npm run bid-helper` | Suggest bid ranges based on historical clearing/floor ratios (`--hook`, `--no-hook`) |
 | `backup` | `npm run backup` | Copy data/*.json to backups/YYYY-MM-DD/, keep 14 days |
 | `verify-data` | `npm run verify-data` | Check dataset integrity against `data/invariants.json` |
 | `typecheck` | `npm run typecheck` | Run TypeScript strict type-check (no emit) |
