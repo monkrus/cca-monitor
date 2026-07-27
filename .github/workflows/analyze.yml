@@ -1,4 +1,4 @@
-name: Weekly Analyze & Deploy
+name: Biweekly Analyze & Deploy
 
 on:
   schedule:
