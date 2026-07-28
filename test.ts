@@ -334,6 +334,101 @@ console.log('\n--- Layer 1c: Dataset integrity tests ---\n')
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LAYER 1c2: CONCENTRATION METRICS TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n--- Layer 1c2: Concentration metrics tests ---\n')
+
+{
+  // Helper: build mock bid logs
+  function mockBidLog(owner: string, amount: bigint, blockNumber: bigint) {
+    return { args: { owner, amount }, blockNumber }
+  }
+
+  // Import computeConcentration-equivalent logic inline (same algorithm as cca-collector)
+  function computeConcentration(bidLogs: any[], fromBlock: bigint, toBlock: bigint) {
+    if (bidLogs.length === 0) return undefined
+    const amountByBidder = new Map<string, bigint>()
+    for (const log of bidLogs) {
+      const owner = (log.args.owner as string).toLowerCase()
+      const amount = BigInt(log.args.amount)
+      amountByBidder.set(owner, (amountByBidder.get(owner) ?? 0n) + amount)
+    }
+    const totalAmount = [...amountByBidder.values()].reduce((s, v) => s + v, 0n)
+    if (totalAmount === 0n) return undefined
+    const shares = [...amountByBidder.values()].map(v => Number(v * 10000n / totalAmount))
+    const hhi = Math.round(shares.reduce((s, sh) => s + (sh * sh) / 10000, 0))
+    const sortedAmounts = [...amountByBidder.values()].sort((a, b) => (b > a ? 1 : b < a ? -1 : 0))
+    const top5Count = Math.min(5, sortedAmounts.length)
+    const top5Total = sortedAmounts.slice(0, 5).reduce((s, v) => s + v, 0n)
+    const top5Pct = Math.round(Number(top5Total * 10000n / totalAmount)) / 100
+    const auctionSpan = Number(toBlock - fromBlock)
+    const lateThreshold = fromBlock + BigInt(Math.floor(auctionSpan * 0.9))
+    const lateBids = bidLogs.filter(log => BigInt(log.blockNumber) >= lateThreshold).length
+    const lateBidPct = Math.round(lateBids * 10000 / bidLogs.length) / 100
+    return { hhi, top5Pct, top5Count, lateBidPct, effectiveCompetition: hhi < 2500 }
+  }
+
+  // Single bidder = HHI 10000 (monopoly)
+  const singleBidder = [mockBidLog('0xAAA', 1000n, 100n)]
+  const r1 = computeConcentration(singleBidder, 0n, 200n)!
+  assert(r1.hhi === 10000, `single bidder HHI = 10000 (got ${r1.hhi})`)
+  assert(r1.top5Pct === 100, `single bidder top5 = 100% (got ${r1.top5Pct})`)
+  assert(r1.effectiveCompetition === false, 'single bidder = not competitive')
+
+  // Two equal bidders = HHI 5000
+  const twoBidders = [
+    mockBidLog('0xAAA', 500n, 50n),
+    mockBidLog('0xBBB', 500n, 100n),
+  ]
+  const r2 = computeConcentration(twoBidders, 0n, 200n)!
+  assert(r2.hhi === 5000, `two equal bidders HHI = 5000 (got ${r2.hhi})`)
+  assert(r2.effectiveCompetition === false, 'two equal bidders = not competitive (HHI > 2500)')
+
+  // Many equal bidders = low HHI
+  const manyBidders = Array.from({ length: 20 }, (_, i) =>
+    mockBidLog(`0x${i.toString(16).padStart(3, '0')}`, 100n, BigInt(i * 10))
+  )
+  const r3 = computeConcentration(manyBidders, 0n, 200n)!
+  assert(r3.hhi <= 500, `20 equal bidders HHI <= 500 (got ${r3.hhi})`)
+  assert(r3.top5Pct === 25, `20 equal bidders top5 = 25% (got ${r3.top5Pct})`)
+  assert(r3.effectiveCompetition === true, '20 equal bidders = competitive')
+
+  // Late-bid ratio: all bids in final 10% of blocks
+  const lateBids = [
+    mockBidLog('0xAAA', 100n, 95n),
+    mockBidLog('0xBBB', 100n, 98n),
+    mockBidLog('0xCCC', 100n, 100n),
+  ]
+  const r4 = computeConcentration(lateBids, 0n, 100n)!
+  assert(r4.lateBidPct === 100, `all-late bids lateBidPct = 100% (got ${r4.lateBidPct})`)
+
+  // Late-bid ratio: no bids in final 10%
+  const earlyBids = [
+    mockBidLog('0xAAA', 100n, 10n),
+    mockBidLog('0xBBB', 100n, 20n),
+    mockBidLog('0xCCC', 100n, 30n),
+  ]
+  const r5 = computeConcentration(earlyBids, 0n, 100n)!
+  assert(r5.lateBidPct === 0, `all-early bids lateBidPct = 0% (got ${r5.lateBidPct})`)
+
+  // Empty logs = undefined
+  const r6 = computeConcentration([], 0n, 100n)
+  assert(r6 === undefined, 'empty logs returns undefined')
+
+  // Whale + minnows: 1 whale (90%) + 9 small (10% total)
+  const whaleBids = [
+    mockBidLog('0xWHALE', 9000n, 50n),
+    ...Array.from({ length: 9 }, (_, i) =>
+      mockBidLog(`0xm${i}`, 111n, BigInt(i * 10))
+    ),
+  ]
+  const r7 = computeConcentration(whaleBids, 0n, 100n)!
+  assert(r7.hhi > 8000, `whale scenario HHI > 8000 (got ${r7.hhi})`)
+  assert(r7.top5Pct > 90, `whale scenario top5 > 90% (got ${r7.top5Pct})`)
+  assert(r7.effectiveCompetition === false, 'whale scenario = not competitive')
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LAYER 1d: CORRUPTION RECOVERY + ATOMIC WRITE TESTS
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n--- Layer 1d: Corruption recovery + atomic write tests ---\n')

@@ -264,6 +264,54 @@ function appendResult(result: Record<string, any>) {
   console.log(`  Saved to ${file} (${existing.auctions.length} auctions total)`)
 }
 
+// ─── Concentration metrics ──────────────────────────────────────────────────
+interface ConcentrationMetrics {
+  hhi: number            // Herfindahl-Hirschman Index (0–10000, 10000 = single bidder)
+  top5Pct: number        // % of total bid amount from top 5 bidders
+  top5Count: number      // how many bidders are in the top-5 (may be < 5)
+  lateBidPct: number     // % of bids in final 10% of auction blocks
+  effectiveCompetition: boolean // true if HHI < 2500 (unconcentrated market)
+}
+
+function computeConcentration(bidLogs: any[], fromBlock: bigint, toBlock: bigint): ConcentrationMetrics | undefined {
+  if (bidLogs.length === 0) return undefined
+
+  // Aggregate bid amounts per bidder
+  const amountByBidder = new Map<string, bigint>()
+  for (const log of bidLogs) {
+    const owner = ((log.args as any).owner as string).toLowerCase()
+    const amount = BigInt((log.args as any).amount)
+    amountByBidder.set(owner, (amountByBidder.get(owner) ?? 0n) + amount)
+  }
+
+  const totalAmount = [...amountByBidder.values()].reduce((s, v) => s + v, 0n)
+  if (totalAmount === 0n) return undefined
+
+  // HHI: sum of squared market shares (each share in basis points 0-10000)
+  const shares = [...amountByBidder.values()].map(v => Number(v * 10000n / totalAmount))
+  const hhi = Math.round(shares.reduce((s, sh) => s + (sh * sh) / 10000, 0))
+
+  // Top-5 share
+  const sortedAmounts = [...amountByBidder.values()].sort((a, b) => (b > a ? 1 : b < a ? -1 : 0))
+  const top5Count = Math.min(5, sortedAmounts.length)
+  const top5Total = sortedAmounts.slice(0, 5).reduce((s, v) => s + v, 0n)
+  const top5Pct = Math.round(Number(top5Total * 10000n / totalAmount)) / 100
+
+  // Late-bid ratio: % of bids in final 10% of auction block range
+  const auctionSpan = Number(toBlock - fromBlock)
+  const lateThreshold = fromBlock + BigInt(Math.floor(auctionSpan * 0.9))
+  const lateBids = bidLogs.filter(log => BigInt(log.blockNumber) >= lateThreshold).length
+  const lateBidPct = Math.round(lateBids * 10000 / bidLogs.length) / 100
+
+  return {
+    hhi,
+    top5Pct,
+    top5Count,
+    lateBidPct,
+    effectiveCompetition: hhi < 2500,
+  }
+}
+
 // ─── HISTORICAL: Pull params + outcomes from a known auction ────────────────
 async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
   console.log(`\n${'='.repeat(60)}`)
@@ -438,7 +486,7 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
     console.log(JSON.stringify(result, null, 2))
     console.log(`Flags: ${result.flags.length === 0 ? 'None' : result.flags.join(', ')}${tokenLabel}`)
 
-    // Count unique bidders
+    // Count unique bidders + concentration metrics
     const logFromBlock = startBlockVal || auction.startBlock
     const logToBlock = endBlockVal || (logFromBlock + 50000n)
     console.log(`Fetching bid events (blocks ${logFromBlock}–${logToBlock})...`)
@@ -454,7 +502,14 @@ async function analyzeAuction(auction: typeof KNOWN_AUCTIONS[0]) {
       const uniqueBidders = bidderAddresses.size
       const totalBids = bidLogs.length
       console.log(`Bid stats: ${totalBids} total bids, ${uniqueBidders} unique bidders`)
-      return { ...result, uniqueBidders, totalBids, bidScanPartial: wasCapped, _bidderAddresses: [...bidderAddresses] }
+
+      // Concentration metrics
+      const concentration = computeConcentration(bidLogs, logFromBlock, logToBlock)
+      if (concentration) {
+        console.log(`Concentration: HHI=${concentration.hhi}, top5=${concentration.top5Pct}%, lateBids=${concentration.lateBidPct}%`)
+      }
+
+      return { ...result, uniqueBidders, totalBids, bidScanPartial: wasCapped, _bidderAddresses: [...bidderAddresses], concentration }
     } catch (logErr: any) {
       const msg = logErr?.details || logErr?.message || ''
       console.log(`Skipping bid events — ${msg || 'unknown error'}`)

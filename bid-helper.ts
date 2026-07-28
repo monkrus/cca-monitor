@@ -12,6 +12,14 @@
 
 import * as fs from 'fs'
 
+interface ConcentrationMetrics {
+  hhi: number
+  top5Pct: number
+  top5Count: number
+  lateBidPct: number
+  effectiveCompetition: boolean
+}
+
 interface AuctionRecord {
   name: string
   chain: string
@@ -27,6 +35,7 @@ interface AuctionRecord {
   totalBids?: number
   uniqueBidders?: number
   tokenSupply?: string
+  concentration?: ConcentrationMetrics
 }
 
 function loadResults(): { auctions: AuctionRecord[] } {
@@ -144,6 +153,40 @@ function main() {
   console.log(`  Note: CCA auctions are uniform-price — all winning bids`)
   console.log(`        pay the same clearing price, regardless of bid price.`)
   console.log(`        Bidding higher only increases fill probability, not cost.`)
+
+  // Concentration panel
+  const withConc = withRatios.filter(a => a.concentration)
+  if (withConc.length > 0) {
+    console.log(`\n\nConcentration & Price Discovery:`)
+    console.log('='.repeat(60))
+    console.log(`  ${'Name'.padEnd(10)} ${'HHI'.padStart(6)} ${'Top-5%'.padStart(7)} ${'Late%'.padStart(6)}  Competition`)
+    console.log('  ' + '-'.repeat(56))
+    for (const a of withConc) {
+      const c = a.concentration!
+      const comp = c.effectiveCompetition ? 'Competitive' : 'Concentrated'
+      console.log(`  ${a.name.padEnd(10)} ${c.hhi.toString().padStart(6)} ${(c.top5Pct + '%').padStart(7)} ${(c.lateBidPct + '%').padStart(6)}  ${comp}`)
+    }
+
+    const avgHhi = Math.round(withConc.reduce((s, a) => s + a.concentration!.hhi, 0) / withConc.length)
+    const avgTop5 = (withConc.reduce((s, a) => s + a.concentration!.top5Pct, 0) / withConc.length).toFixed(1)
+    const avgLate = (withConc.reduce((s, a) => s + a.concentration!.lateBidPct, 0) / withConc.length).toFixed(1)
+    console.log(`\n  Averages:  HHI=${avgHhi}  Top-5=${avgTop5}%  Late-bids=${avgLate}%`)
+    console.log(`\n  HHI guide: <1500 = competitive, 1500-2500 = moderate, >2500 = concentrated`)
+    console.log(`  Late-bid%: high value = most activity near auction end (sniping risk)`)
+
+    // Flag auctions where same ratio hides different dynamics
+    const graduated = withConc.filter(a => a.ratio !== null)
+    if (graduated.length >= 2) {
+      const maxHhi = Math.max(...graduated.map(a => a.concentration!.hhi))
+      const minHhi = Math.min(...graduated.map(a => a.concentration!.hhi))
+      if (maxHhi > 3 * minHhi) {
+        const most = graduated.find(a => a.concentration!.hhi === maxHhi)!
+        const least = graduated.find(a => a.concentration!.hhi === minHhi)!
+        console.log(`\n  ⚠ ${most.name} (HHI ${maxHhi}) vs ${least.name} (HHI ${minHhi}) — same mechanism,`)
+        console.log(`    very different price discovery. Clearing ratio alone is misleading.`)
+      }
+    }
+  }
 
   // Caveats
   console.log(`\n\nCaveats:`)
