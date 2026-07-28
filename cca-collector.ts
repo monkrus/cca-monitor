@@ -24,10 +24,12 @@ dotenv.config()
 // ─── Factory addresses (same across all chains) ─────────────────────────────
 // V1: early auctions (AZTEC, Dec 2025 – Feb 2026)
 // V2: current (wOCT, STRATO, CAP, etc.)
-const FACTORY_ADDRESSES = [
+// Add future versions via EXTRA_FACTORY_ADDRESSES env var (comma-separated)
+const FACTORY_ADDRESSES: readonly string[] = [
   '0x0000ccaDF55C911a2FbC0BB9d2942Aa77c6FAa1D',
   '0xcccccccae7503cac057829bf2811de42e16e0bd5',
-] as const
+  ...(process.env.EXTRA_FACTORY_ADDRESSES?.split(',').map(s => s.trim()).filter(Boolean) || []),
+]
 
 // ─── Known completed auctions (add more as they happen) ─────────────────────
 // Discovery: Uniswap app URL pattern: app.uniswap.org/explore/auctions/{chain}/{contractAddress}
@@ -1589,7 +1591,7 @@ async function watchForNewAuctions() {
 
         const logs = (await Promise.all(FACTORY_ADDRESSES.map(addr =>
           logsClient.getLogs({
-            address: addr,
+            address: addr as `0x${string}`,
             event: FACTORY_ABI[0],
             fromBlock: lastBlock[name] + 1n,
             toBlock: currentBlock,
@@ -1843,6 +1845,34 @@ async function main() {
       singleInHooked, singleInOpen, singleHookedPct: `${singleHookedPct}%`,
     }
 
+    // ── Bidder overlap matrix (for chord diagram) ────────────────────
+    const realNames = real.map(r => r.name)
+    const overlapMatrix: Record<string, Record<string, number>> = {}
+    for (const a of realNames) {
+      overlapMatrix[a] = {}
+      for (const b of realNames) overlapMatrix[a][b] = 0
+    }
+    for (const [, auctions] of bidderIndex) {
+      if (auctions.length < 2) continue
+      for (let i = 0; i < auctions.length; i++) {
+        for (let j = i + 1; j < auctions.length; j++) {
+          overlapMatrix[auctions[i]][auctions[j]]++
+          overlapMatrix[auctions[j]][auctions[i]]++
+        }
+      }
+    }
+    console.log(`\nBIDDER OVERLAP MATRIX`)
+    console.log('='.repeat(60))
+    const header = [''.padEnd(8), ...realNames.map(n => n.padStart(8))].join('')
+    console.log(header)
+    for (const a of realNames) {
+      const row = [a.padEnd(8), ...realNames.map(b => {
+        const v = a === b ? '-' : overlapMatrix[a][b].toString()
+        return v.padStart(8)
+      })].join('')
+      console.log(row)
+    }
+
     // Strip internal _bidderAddresses before saving
     for (const r of results) delete (r as any)._bidderAddresses
 
@@ -1879,6 +1909,7 @@ async function main() {
         failed: allResults.filter((r: any) => r.graduated === false).length,
         withHooks: allResults.filter((r: any) => r.hasValidationHook).length,
         bidderInsights,
+        overlapMatrix,
       },
       auctions: allResults,
     }

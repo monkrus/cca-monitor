@@ -17,6 +17,12 @@
       "singleInHooked": 14399,
       "singleInOpen": 1035,
       "singleHookedPct": "93.3%"
+    },
+    "overlapMatrix": {
+      "AZTEC": { "AZTEC": 0, "STRATO": 6, "wOCT": 30, "CAP": 32 },
+      "STRATO": { "AZTEC": 6, "STRATO": 0, "wOCT": 10, "CAP": 13 },
+      "wOCT": { "AZTEC": 30, "STRATO": 10, "wOCT": 0, "CAP": 14 },
+      "CAP": { "AZTEC": 32, "STRATO": 13, "wOCT": 14, "CAP": 0 }
     }
   },
   "auctions": [

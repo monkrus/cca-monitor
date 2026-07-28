@@ -59,20 +59,25 @@
   .bar:hover { opacity: 0.85; }
   .bar-label { font-size: 11px; color: var(--muted); text-align: center; white-space: nowrap; }
   .bar-value { font-size: 10px; font-weight: 600; color: var(--text); text-align: center; margin-bottom: 2px; }
-  .chart-legend { display: flex; gap: 16px; margin-top: 12px; }
+  .chart-legend { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
   .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
   .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
 
-  .table-wrap { padding: 0 32px 32px; overflow-x: auto; }
-  .table-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .chord-container { display: flex; justify-content: center; align-items: center; }
+  .chord-container canvas { max-width: 100%; height: auto; }
+
+  .table-wrap { padding: 0 32px 32px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; flex-wrap: wrap; }
   .table-header h2 { font-size: 15px; font-weight: 600; }
-  .toggle-btn {
+  .table-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .toggle-btn, .export-btn {
     background: var(--surface); border: 1px solid var(--border); color: var(--muted);
     padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
-    transition: all 0.15s;
+    transition: all 0.15s; white-space: nowrap;
   }
-  .toggle-btn:hover { border-color: var(--accent); color: var(--text); }
+  .toggle-btn:hover, .export-btn:hover { border-color: var(--accent); color: var(--text); }
   .toggle-btn.active { border-color: var(--accent); color: var(--accent); }
+  .export-btn { display: inline-flex; align-items: center; gap: 4px; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   thead th {
     text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 600;
@@ -83,10 +88,41 @@
   thead th:hover { color: var(--text); }
   thead th .sort-arrow { font-size: 10px; margin-left: 4px; }
   tbody tr { border-bottom: 1px solid var(--border); transition: background 0.15s; }
-  tbody tr:hover { background: rgba(99,102,241,0.05); }
+  tbody tr.data-row { cursor: pointer; }
+  tbody tr.data-row:hover { background: rgba(99,102,241,0.05); }
   tbody tr.test-row { opacity: 0.5; }
   td { padding: 12px; white-space: nowrap; }
   td.wrap { white-space: normal; max-width: 200px; }
+
+  /* Detail panel (drill-down) */
+  .detail-row td { padding: 0; border-bottom: 1px solid var(--border); }
+  .detail-panel {
+    background: var(--surface); padding: 20px 24px; margin: 0;
+    border-top: 2px solid var(--accent);
+    animation: slideDown 0.2s ease-out;
+  }
+  @keyframes slideDown { from { opacity: 0; max-height: 0; } to { opacity: 1; max-height: 600px; } }
+  .detail-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px; margin-bottom: 16px;
+  }
+  .detail-item .detail-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .detail-item .detail-value { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .detail-item .detail-value.green { color: var(--green); }
+  .detail-item .detail-value.red { color: var(--red); }
+  .detail-item .detail-value.amber { color: var(--amber); }
+  .detail-conc {
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--border);
+  }
+  .conc-bar-wrap { flex: 1; min-width: 180px; }
+  .conc-bar-bg { height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+  .conc-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+  .conc-bar-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: flex; justify-content: space-between; }
+  .detail-flags { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .detail-flag { background: rgba(245,158,11,0.12); color: var(--amber); padding: 3px 10px; border-radius: 4px; font-size: 12px; }
+  .detail-links { margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .detail-links a { font-size: 13px; }
 
   .badge {
     display: inline-block; padding: 2px 8px; border-radius: 9999px;
@@ -121,13 +157,32 @@
   .empty-state { text-align: center; padding: 80px 32px; color: var(--muted); }
   .empty-state h2 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
 
+  /* ── Mobile ───────────────────────────────────────────────────── */
   @media (max-width: 768px) {
-    .header, .stats-row, .table-wrap, .cta-bar, .charts-row { padding-left: 16px; padding-right: 16px; }
-    .stats-row { gap: 8px; }
-    .stat-card { min-width: 100px; padding: 12px; }
-    .stat-card .value { font-size: 20px; }
-    .charts-row { flex-direction: column; }
-    .chart-card { min-width: unset; }
+    .header { padding: 16px; flex-direction: column; gap: 8px; align-items: flex-start; }
+    .header-meta { font-size: 12px; }
+    .stats-row { padding: 12px 16px; gap: 8px; }
+    .stat-card { min-width: 0; flex-basis: calc(50% - 4px); padding: 12px; }
+    .stat-card .value { font-size: 18px; }
+    .stat-card .sub { font-size: 10px; }
+    .charts-row { padding: 0 16px 16px; flex-direction: column; }
+    .chart-card { min-width: unset; padding: 16px; }
+    .bar-chart { gap: 6px; height: 120px; }
+    .bar-label { font-size: 9px; }
+    .cta-bar { margin: 0 16px 16px; padding: 12px 16px; flex-direction: column; text-align: center; }
+    .table-wrap { padding: 0 16px 32px; }
+    .table-header { flex-direction: column; align-items: flex-start; }
+    table { font-size: 12px; }
+    thead th { padding: 8px 6px; font-size: 10px; }
+    td { padding: 8px 6px; }
+    /* Hide less critical columns on mobile */
+    .hide-mobile { display: none; }
+    .detail-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .detail-panel { padding: 14px 16px; }
+  }
+  @media (max-width: 480px) {
+    .stat-card { flex-basis: 100%; }
+    .detail-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -150,7 +205,11 @@
 <div class="table-wrap">
   <div class="table-header">
     <h2>Auctions</h2>
-    <button class="toggle-btn" id="testToggle" onclick="toggleTests()">Show test auctions</button>
+    <div class="table-controls">
+      <button class="export-btn" onclick="exportJSON()" title="Download full dataset as JSON">JSON</button>
+      <button class="export-btn" onclick="exportCSV()" title="Download auction table as CSV">CSV</button>
+      <button class="toggle-btn" id="testToggle" onclick="toggleTests()">Show test auctions</button>
+    </div>
   </div>
   <table>
     <thead>
@@ -158,17 +217,16 @@
         <th data-key="name">Token <span class="sort-arrow"></span></th>
         <th data-key="chain">Chain <span class="sort-arrow"></span></th>
         <th data-key="graduated">Status <span class="sort-arrow"></span></th>
-        <th data-key="currencySymbol">Currency <span class="sort-arrow"></span></th>
+        <th data-key="currencySymbol" class="hide-mobile">Currency <span class="sort-arrow"></span></th>
         <th data-key="raised" class="right">Raised <span class="sort-arrow"></span></th>
-        <th data-key="totalBids" class="right">Bids <span class="sort-arrow"></span></th>
+        <th data-key="totalBids" class="right hide-mobile">Bids <span class="sort-arrow"></span></th>
         <th data-key="uniqueBidders" class="right">Bidders <span class="sort-arrow"></span></th>
-        <th data-key="durationHours" class="right">Duration <span class="sort-arrow"></span></th>
+        <th data-key="durationHours" class="right hide-mobile">Duration <span class="sort-arrow"></span></th>
         <th data-key="clearingVsFloor" class="right">Clear/Floor <span class="sort-arrow"></span></th>
-        <th data-key="hhi" class="right">HHI <span class="sort-arrow"></span></th>
-        <th data-key="top5Pct" class="right">Top-5% <span class="sort-arrow"></span></th>
-        <th data-key="hasValidationHook">Hook <span class="sort-arrow"></span></th>
-        <th class="wrap">Flags</th>
-        <th>Links</th>
+        <th data-key="hhi" class="right hide-mobile">HHI <span class="sort-arrow"></span></th>
+        <th data-key="top5Pct" class="right hide-mobile">Top-5% <span class="sort-arrow"></span></th>
+        <th data-key="hasValidationHook" class="hide-mobile">Hook <span class="sort-arrow"></span></th>
+        <th class="wrap hide-mobile">Flags</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
@@ -180,49 +238,50 @@
 </div>
 
 <script>
-let allData = null;
-let showTests = false;
-let sortKey = null;
-let sortAsc = true;
+var allData = null;
+var showTests = false;
+var sortKey = null;
+var sortAsc = true;
+var expandedRow = null;
 
 async function load() {
   try {
-    const urls = [
+    var urls = [
       'results.json',
       'https://raw.githubusercontent.com/monkrus/cca-monitor/master/data/results.json',
     ];
-    let data;
-    for (const url of urls) {
+    var data;
+    for (var i = 0; i < urls.length; i++) {
       try {
-        const resp = await fetch(url);
+        var resp = await fetch(urls[i]);
         if (resp.ok) { data = await resp.json(); break; }
-      } catch {}
+      } catch (e) {}
     }
     if (!data) throw new Error('No data');
     allData = data;
     render(data);
-  } catch {
+  } catch (e) {
     document.getElementById('empty').style.display = 'block';
   }
 }
 
 function toggleTests() {
   showTests = !showTests;
-  const btn = document.getElementById('testToggle');
+  var btn = document.getElementById('testToggle');
   btn.textContent = showTests ? 'Hide test auctions' : 'Show test auctions';
   btn.classList.toggle('active', showTests);
+  expandedRow = null;
   if (allData) renderTable(allData);
 }
 
 function render(data) {
-  const date = new Date(data.timestamp);
-  const real = data.auctions.filter(a => !a.isTest);
+  var date = new Date(data.timestamp);
+  var real = data.auctions.filter(function(a) { return !a.isTest; });
   document.getElementById('meta').textContent = 'Last updated: ' + date.toLocaleString() + ' | ' + real.length + ' real auctions, ' + data.summary.tests + ' test';
 
-  // Stats
-  const s = data.summary;
-  const bi = s.bidderInsights || {};
-  const statsHtml = [
+  var s = data.summary;
+  var bi = s.bidderInsights || {};
+  var statsHtml = [
     { label: 'Real Auctions', value: s.real, cls: '' },
     { label: 'Graduated', value: s.graduated, cls: 'green', sub: 'of ' + s.total + ' total' },
     { label: 'Unique Bidders', value: bi.totalUnique ? bi.totalUnique.toLocaleString() : '?', cls: '', sub: bi.repeatBidders ? bi.repeatBidders + ' repeat (' + bi.recurrenceRate + ')' : '' },
@@ -235,12 +294,12 @@ function render(data) {
   renderCharts(data);
   renderTable(data);
 
-  // Sortable headers
   document.querySelectorAll('#thead-row th[data-key]').forEach(function(th) {
     th.addEventListener('click', function() {
       var key = th.getAttribute('data-key');
       if (sortKey === key) { sortAsc = !sortAsc; }
       else { sortKey = key; sortAsc = true; }
+      expandedRow = null;
       renderTable(allData);
     });
   });
@@ -255,13 +314,10 @@ function renderCharts(data) {
   real.forEach(function(a) {
     var r = parseFloat(a.clearingVsFloor) || 0;
     if (r > maxRatio) maxRatio = r;
-    var b = (a.totalBids || 0);
-    var u = (a.uniqueBidders || 0);
-    var m = Math.max(b, u);
+    var m = Math.max(a.totalBids || 0, a.uniqueBidders || 0);
     if (m > maxBids) maxBids = m;
   });
 
-  // Chart 1: Clearing vs Floor ratio
   var chart1Bars = real.map(function(a) {
     var ratio = parseFloat(a.clearingVsFloor) || 0;
     var h = maxRatio > 0 ? Math.max(4, (ratio / maxRatio) * 140) : 4;
@@ -271,7 +327,6 @@ function renderCharts(data) {
       '<div class="bar-label">' + a.name + '</div></div>';
   }).join('');
 
-  // Chart 2: Bids & Bidders
   var chart2Bars = real.map(function(a) {
     var bids = a.totalBids || 0;
     var bidders = a.uniqueBidders || 0;
@@ -285,11 +340,11 @@ function renderCharts(data) {
       '<div class="bar-label">' + a.name + '</div></div>';
   }).join('');
 
-  // Chart 3: Concentration (HHI & Late-bid %)
+  // Concentration chart
   var concAuctions = real.filter(function(a) { return a.concentration; });
   var chart3Html = '';
   if (concAuctions.length > 0) {
-    var maxHhi = 10000; // HHI max is always 10000
+    var maxHhi = 10000;
     var chart3Bars = concAuctions.map(function(a) {
       var c = a.concentration;
       var hHhi = Math.max(4, (c.hhi / maxHhi) * 140);
@@ -311,11 +366,135 @@ function renderCharts(data) {
       '</div></div>';
   }
 
+  // Chord diagram for bidder overlap
+  var chordHtml = '';
+  var om = data.summary.overlapMatrix;
+  if (om) {
+    var names = Object.keys(om);
+    if (names.length >= 2) {
+      chordHtml = '<div class="chart-card"><h3>Cross-Auction Bidder Flow</h3>' +
+        '<div class="chord-container"><canvas id="chordCanvas" width="320" height="320"></canvas></div>' +
+        '<div class="chart-legend" id="chordLegend"></div></div>';
+    }
+  }
+
   document.getElementById('charts').innerHTML =
     '<div class="chart-card"><h3>Clearing vs Floor Price</h3><div class="bar-chart" style="position:relative;">' + chart1Bars + '</div></div>' +
     '<div class="chart-card"><h3>Bids & Unique Bidders</h3><div class="bar-chart" style="position:relative;">' + chart2Bars + '</div>' +
     '<div class="chart-legend"><div class="legend-item"><div class="legend-dot" style="background:var(--accent);"></div>Total bids</div><div class="legend-item"><div class="legend-dot" style="background:var(--green);"></div>Unique bidders</div></div></div>' +
-    chart3Html;
+    chart3Html + chordHtml;
+
+  if (om) drawChord(om, data.auctions);
+}
+
+function drawChord(overlapMatrix, auctions) {
+  var canvas = document.getElementById('chordCanvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var names = Object.keys(overlapMatrix);
+  var n = names.length;
+  if (n < 2) return;
+
+  var W = canvas.width, H = canvas.height;
+  var cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 40;
+
+  var colors = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+
+  // Get bidder counts per auction for arc sizing
+  var auctionMap = {};
+  auctions.forEach(function(a) { if (!a.isTest) auctionMap[a.name] = a; });
+  var bidderCounts = names.map(function(name) { return (auctionMap[name] && auctionMap[name].uniqueBidders) || 1; });
+  var totalBidders = bidderCounts.reduce(function(s, v) { return s + v; }, 0);
+
+  // Compute arc angles proportional to bidder count
+  var gap = 0.06;
+  var totalGap = gap * n;
+  var availableAngle = 2 * Math.PI - totalGap;
+  var arcs = [];
+  var angle = -Math.PI / 2;
+  for (var i = 0; i < n; i++) {
+    var sweep = (bidderCounts[i] / totalBidders) * availableAngle;
+    arcs.push({ start: angle, end: angle + sweep, mid: angle + sweep / 2, color: colors[i % colors.length], name: names[i] });
+    angle += sweep + gap;
+  }
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Draw arcs
+  for (var i = 0; i < n; i++) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, arcs[i].start, arcs[i].end);
+    ctx.strokeStyle = arcs[i].color;
+    ctx.lineWidth = 12;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  // Draw chords (connections)
+  var maxOverlap = 0;
+  for (var i = 0; i < n; i++)
+    for (var j = i + 1; j < n; j++) {
+      var v = overlapMatrix[names[i]][names[j]] || 0;
+      if (v > maxOverlap) maxOverlap = v;
+    }
+
+  for (var i = 0; i < n; i++) {
+    for (var j = i + 1; j < n; j++) {
+      var v = overlapMatrix[names[i]][names[j]] || 0;
+      if (v === 0) continue;
+      var alpha = Math.max(0.15, Math.min(0.7, v / (maxOverlap || 1)));
+      var thickness = Math.max(1, Math.min(6, (v / (maxOverlap || 1)) * 6));
+
+      var x1 = cx + (R - 8) * Math.cos(arcs[i].mid);
+      var y1 = cy + (R - 8) * Math.sin(arcs[i].mid);
+      var x2 = cx + (R - 8) * Math.cos(arcs[j].mid);
+      var y2 = cy + (R - 8) * Math.sin(arcs[j].mid);
+
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.quadraticCurveTo(cx * 0.6 + (x1 + x2) * 0.2, cy * 0.6 + (y1 + y2) * 0.2, x2, y2);
+      ctx.strokeStyle = arcs[i].color.replace(')', ',' + alpha + ')').replace('rgb', 'rgba').replace('#', '');
+      // Use hex to rgba
+      var hex = arcs[i].color;
+      var r = parseInt(hex.slice(1, 3), 16);
+      var g = parseInt(hex.slice(3, 5), 16);
+      var b = parseInt(hex.slice(5, 7), 16);
+      ctx.strokeStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+      ctx.lineWidth = thickness;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Label on the chord
+      var mx = (x1 + x2) / 2 + (cx - (x1 + x2) / 2) * 0.3;
+      var my = (y1 + y2) / 2 + (cy - (y1 + y2) / 2) * 0.3;
+      ctx.fillStyle = 'rgba(226,232,240,0.8)';
+      ctx.font = '600 10px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(v.toString(), mx, my);
+    }
+  }
+
+  // Draw labels outside arcs
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = '600 12px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (var i = 0; i < n; i++) {
+    var lx = cx + (R + 24) * Math.cos(arcs[i].mid);
+    var ly = cy + (R + 24) * Math.sin(arcs[i].mid);
+    ctx.fillStyle = arcs[i].color;
+    ctx.fillText(arcs[i].name, lx, ly);
+  }
+
+  // Legend
+  var legendEl = document.getElementById('chordLegend');
+  if (legendEl) {
+    legendEl.innerHTML = names.map(function(name, i) {
+      var count = bidderCounts[i];
+      return '<div class="legend-item"><div class="legend-dot" style="background:' + arcs[i].color + ';"></div>' + name + ' (' + count.toLocaleString() + ')</div>';
+    }).join('') + '<div class="legend-item" style="color:var(--muted);font-style:italic;">Lines = shared bidders</div>';
+  }
 }
 
 function parseRaised(a) {
@@ -341,6 +520,71 @@ function getSortValue(a, key) {
   }
 }
 
+function toggleDetail(idx) {
+  if (expandedRow === idx) { expandedRow = null; }
+  else { expandedRow = idx; }
+  renderTable(allData);
+}
+
+function buildDetailPanel(a) {
+  var chainSlug = a.chain === 'mainnet' ? 'ethereum' : a.chain;
+  var explorerBase = { mainnet: 'https://etherscan.io', base: 'https://basescan.org', arbitrum: 'https://arbiscan.io', unichain: 'https://uniscan.xyz' }[a.chain] || '';
+  var uniswapUrl = 'https://app.uniswap.org/explore/auctions/' + chainSlug + '/' + a.tokenAddress;
+  var explorerUrl = explorerBase + '/address/' + a.contractAddress;
+  var tokenUrl = explorerBase + '/address/' + a.tokenAddress;
+
+  var items = [
+    { label: 'Token Name', value: a.tokenName || '?', cls: '' },
+    { label: 'Token Supply', value: a.tokenSupply || '?', cls: '' },
+    { label: 'Floor Price', value: a.floorPrice || '?', cls: '' },
+    { label: 'Clearing Price', value: a.clearingPrice || '?', cls: '' },
+    { label: 'Clearing/Floor', value: a.clearingVsFloor || '?', cls: '' },
+    { label: 'Currency Raised', value: a.currencyRaisedFormatted || '?', cls: '' },
+    { label: 'Total Bids', value: a.totalBids != null ? a.totalBids.toLocaleString() : '?', cls: '' },
+    { label: 'Unique Bidders', value: a.uniqueBidders != null ? a.uniqueBidders.toLocaleString() : '?', cls: '' },
+    { label: 'Repeat Bidders', value: a.repeatBidders != null ? a.repeatBidders.toString() : '?', cls: '' },
+    { label: 'Duration', value: (a.durationHours / 24).toFixed(1) + ' days (' + a.durationHours + 'h)', cls: '' },
+    { label: 'Blocks', value: (a.startBlock || '?') + ' - ' + (a.endBlock || '?'), cls: '' },
+    { label: 'Tick Spacing', value: a.tickSpacingAsPctOfFloor || '?', cls: '' },
+  ];
+
+  var gridHtml = items.map(function(item) {
+    return '<div class="detail-item"><div class="detail-label">' + item.label + '</div><div class="detail-value ' + item.cls + '">' + item.value + '</div></div>';
+  }).join('');
+
+  // Concentration bars
+  var concHtml = '';
+  if (a.concentration) {
+    var c = a.concentration;
+    var hhiPct = Math.min(100, c.hhi / 100);
+    var hhiColor = c.hhi < 1500 ? 'var(--green)' : c.hhi < 2500 ? 'var(--amber)' : 'var(--red)';
+    var hhiLabel = c.effectiveCompetition ? 'Competitive' : 'Concentrated';
+    concHtml = '<div class="detail-conc">' +
+      '<div class="conc-bar-wrap"><div class="conc-bar-label"><span>HHI: ' + c.hhi + ' (' + hhiLabel + ')</span><span>/ 10,000</span></div><div class="conc-bar-bg"><div class="conc-bar-fill" style="width:' + hhiPct + '%;background:' + hhiColor + ';"></div></div></div>' +
+      '<div class="conc-bar-wrap"><div class="conc-bar-label"><span>Top-5 Share</span><span>' + c.top5Pct + '%</span></div><div class="conc-bar-bg"><div class="conc-bar-fill" style="width:' + c.top5Pct + '%;background:var(--accent);"></div></div></div>' +
+      '<div class="conc-bar-wrap"><div class="conc-bar-label"><span>Late Bids</span><span>' + c.lateBidPct + '%</span></div><div class="conc-bar-bg"><div class="conc-bar-fill" style="width:' + c.lateBidPct + '%;background:var(--amber);"></div></div></div>' +
+      '</div>';
+  }
+
+  var flagsHtml = '';
+  if (a.flags && a.flags.length > 0) {
+    flagsHtml = '<div class="detail-flags">' + a.flags.map(function(f) {
+      return '<span class="detail-flag">' + f + '</span>';
+    }).join('') + '</div>';
+  }
+
+  var linksHtml = '<div class="detail-links">' +
+    '<a href="' + uniswapUrl + '" target="_blank">Uniswap App</a>' +
+    '<a href="' + explorerUrl + '" target="_blank">Auction Contract</a>' +
+    '<a href="' + tokenUrl + '" target="_blank">Token Contract</a>' +
+    '</div>';
+
+  return '<div class="detail-panel">' +
+    '<div class="detail-grid">' + gridHtml + '</div>' +
+    concHtml + flagsHtml + linksHtml +
+    '</div>';
+}
+
 function renderTable(data) {
   var auctions = showTests ? data.auctions.slice() : data.auctions.filter(function(a) { return !a.isTest; });
 
@@ -354,7 +598,6 @@ function renderTable(data) {
     });
   }
 
-  // Update sort arrows
   document.querySelectorAll('#thead-row th[data-key]').forEach(function(th) {
     var arrow = th.querySelector('.sort-arrow');
     var key = th.getAttribute('data-key');
@@ -368,18 +611,10 @@ function renderTable(data) {
   }
   document.getElementById('empty').style.display = 'none';
 
-  var tbody = document.getElementById('tbody');
-  tbody.innerHTML = auctions.map(function(a) {
-    var chainSlug = a.chain === 'mainnet' ? 'ethereum' : a.chain;
-    var explorerBase = {
-      mainnet: 'https://etherscan.io',
-      base: 'https://basescan.org',
-      arbitrum: 'https://arbiscan.io',
-      unichain: 'https://uniscan.xyz',
-    }[a.chain] || '';
-    var uniswapUrl = 'https://app.uniswap.org/explore/auctions/' + chainSlug + '/' + a.tokenAddress;
-    var explorerUrl = explorerBase + '/address/' + a.tokenAddress;
+  var colCount = document.querySelectorAll('#thead-row th').length;
 
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = auctions.map(function(a, idx) {
     var statusBadge = a.graduated
       ? '<span class="badge badge-green">Graduated</span>'
       : '<span class="badge badge-red">Failed</span>';
@@ -395,25 +630,84 @@ function renderTable(data) {
       return '<span class="badge badge-flag">' + short + '</span>';
     }).join(' ');
 
-    var rowClass = a.isTest ? ' class="test-row"' : '';
+    var rowClass = a.isTest ? 'test-row data-row' : 'data-row';
+    var isExpanded = expandedRow === idx;
 
-    return '<tr' + rowClass + '>' +
+    var row = '<tr class="' + rowClass + '" onclick="toggleDetail(' + idx + ')" title="Click to expand">' +
       '<td><strong>' + (a.tokenSymbol || a.name) + '</strong>' + (a.isTest ? ' <span class="badge badge-flag">TEST</span>' : '') + '<br><span class="mono">' + (a.tokenName || '') + '</span></td>' +
       '<td><span class="badge badge-chain">' + a.chain + '</span></td>' +
       '<td>' + statusBadge + '</td>' +
-      '<td>' + (a.currencySymbol || '?') + '</td>' +
-      '<td class="right">' + (a.currencyRaisedFormatted || '—') + '</td>' +
-      '<td class="right">' + (a.totalBids != null ? a.totalBids.toLocaleString() : '—') + '</td>' +
-      '<td class="right">' + (a.uniqueBidders != null ? a.uniqueBidders.toLocaleString() : '—') + '</td>' +
-      '<td class="right">' + durationDays + 'd<br><span class="mono">' + a.durationHours + 'h</span></td>' +
-      '<td class="right"><strong>' + (a.clearingVsFloor || '—') + '</strong></td>' +
-      '<td class="right">' + (a.concentration ? '<span style="color:' + (a.concentration.hhi < 1500 ? 'var(--green)' : a.concentration.hhi < 2500 ? 'var(--amber)' : 'var(--red)') + '">' + a.concentration.hhi + '</span>' : '—') + '</td>' +
-      '<td class="right">' + (a.concentration ? a.concentration.top5Pct + '%' : '—') + '</td>' +
-      '<td>' + hookBadge + '</td>' +
-      '<td class="wrap">' + (flags || '—') + '</td>' +
-      '<td><a href="' + uniswapUrl + '" target="_blank">Uniswap</a> | <a href="' + explorerUrl + '" target="_blank">Explorer</a></td>' +
+      '<td class="hide-mobile">' + (a.currencySymbol || '?') + '</td>' +
+      '<td class="right">' + (a.currencyRaisedFormatted || '\u2014') + '</td>' +
+      '<td class="right hide-mobile">' + (a.totalBids != null ? a.totalBids.toLocaleString() : '\u2014') + '</td>' +
+      '<td class="right">' + (a.uniqueBidders != null ? a.uniqueBidders.toLocaleString() : '\u2014') + '</td>' +
+      '<td class="right hide-mobile">' + durationDays + 'd<br><span class="mono">' + a.durationHours + 'h</span></td>' +
+      '<td class="right"><strong>' + (a.clearingVsFloor || '\u2014') + '</strong></td>' +
+      '<td class="right hide-mobile">' + (a.concentration ? '<span style="color:' + (a.concentration.hhi < 1500 ? 'var(--green)' : a.concentration.hhi < 2500 ? 'var(--amber)' : 'var(--red)') + '">' + a.concentration.hhi + '</span>' : '\u2014') + '</td>' +
+      '<td class="right hide-mobile">' + (a.concentration ? a.concentration.top5Pct + '%' : '\u2014') + '</td>' +
+      '<td class="hide-mobile">' + hookBadge + '</td>' +
+      '<td class="wrap hide-mobile">' + (flags || '\u2014') + '</td>' +
       '</tr>';
+
+    if (isExpanded) {
+      row += '<tr class="detail-row"><td colspan="' + colCount + '">' + buildDetailPanel(a) + '</td></tr>';
+    }
+
+    return row;
   }).join('');
+}
+
+// ── Export functions ─────────────────────────────────────────────
+function exportJSON() {
+  if (!allData) return;
+  var blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, 'cca-monitor-data.json');
+}
+
+function exportCSV() {
+  if (!allData) return;
+  var auctions = allData.auctions;
+  var headers = ['Name', 'Chain', 'Status', 'Currency', 'Raised', 'Bids', 'Bidders', 'Duration (h)', 'Clearing/Floor', 'HHI', 'Top-5%', 'Hook', 'Flags', 'Floor Price', 'Clearing Price', 'Contract'];
+  var rows = auctions.map(function(a) {
+    return [
+      a.tokenSymbol || a.name,
+      a.chain,
+      a.graduated ? 'Graduated' : 'Failed',
+      a.currencySymbol || '',
+      a.currencyRaisedFormatted || '',
+      a.totalBids != null ? a.totalBids : '',
+      a.uniqueBidders != null ? a.uniqueBidders : '',
+      a.durationHours,
+      a.clearingVsFloor || '',
+      a.concentration ? a.concentration.hhi : '',
+      a.concentration ? a.concentration.top5Pct : '',
+      a.hasValidationHook ? 'Yes' : 'No',
+      (a.flags || []).join('; '),
+      a.floorPrice || '',
+      a.clearingPrice || '',
+      a.contractAddress,
+    ].map(function(v) {
+      var s = String(v == null ? '' : v);
+      if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }).join(',');
+  });
+  var csv = [headers.join(',')].concat(rows).join('\n');
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, 'cca-monitor-auctions.csv');
+}
+
+function downloadBlob(blob, filename) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 load();

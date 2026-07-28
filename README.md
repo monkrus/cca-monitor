@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml)
 
-On-chain data collector and live monitor for Uniswap's [Continuous Clearing Auctions](https://blog.uniswap.org/cca) (CCAs). Tracks 15 auctions (4 real, 11 test) across Ethereum, Base, Arbitrum, and Unichain with 15,520 unique bidder addresses indexed. 80 automated checks guard dataset integrity.
+On-chain data collector and live monitor for Uniswap's [Continuous Clearing Auctions](https://blog.uniswap.org/cca) (CCAs). Tracks 15 auctions (4 real, 11 test) across Ethereum, Base, Arbitrum, and Unichain with 15,520 unique bidder addresses indexed. 92 automated checks guard dataset integrity.
 
 > **Telegram:** [@cca_auctions](https://t.me/cca_auctions) (free, 30-min delay) | [@cca_monitor_bot](https://t.me/cca_monitor_bot) (premium)
 
@@ -42,7 +42,7 @@ All three processes auto-restart on crash. See [RUNBOOK.md](RUNBOOK.md) for ops 
 | `backup` | `npm run backup` | Copy data/*.json to backups/YYYY-MM-DD/, keep 14 days |
 | `verify-data` | `npm run verify-data` | Check dataset integrity against `data/invariants.json` |
 | `typecheck` | `npm run typecheck` | Run TypeScript strict type-check (no emit) |
-| `test` | `npm test` | Type-check + test suite (69 tests) + verify-data (11 checks) |
+| `test` | `npm test` | Type-check + test suite (81 tests) + verify-data (11 checks) |
 | `start:all` | `npm run start:all` | Start all long-running processes via pm2 |
 | `status` | `npm run status` | Show pm2 process status |
 
@@ -74,11 +74,11 @@ Set `WEBHOOK_URL` in `.env` to receive JSON POST notifications when new auctions
 |------|-------|--------|------|---------|----------------|--------|------|
 | AZTEC | Mainnet | Graduated | 17,232 | 14,096 | 163% | 19,388 ETH | Yes (ZK Passport) |
 | STRATO | Mainnet | Graduated | 575 | 291 | 407% | 804 ETH | No |
-| wOCT | Mainnet | Graduated | 1,867 | 812 | * | 1,177 ETH | No |
+| wOCT | Mainnet | Graduated | 1,867 | 812 | n/a | 1,177 ETH | No |
 | CAP | Mainnet | Graduated | 1,002 | 416 | 142% | 3.84M USDC | Yes (KYC) |
 | 11 test auctions | Base | Failed | — | — | — | — | — |
 
-\* wOCT clearing/floor ratio is anomalous due to near-zero floor price.
+wOCT's floor price decodes to near-zero (Q96 value `4294967300` = ~5.4e-20), making the clearing/floor ratio astronomically large and meaningless. The auction itself graduated normally with a clearing price of 0.00001236 ETH and 1,177 ETH raised.
 
 ## What This Data Enables
 
