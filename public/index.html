@@ -164,6 +164,8 @@
         <th data-key="uniqueBidders" class="right">Bidders <span class="sort-arrow"></span></th>
         <th data-key="durationHours" class="right">Duration <span class="sort-arrow"></span></th>
         <th data-key="clearingVsFloor" class="right">Clear/Floor <span class="sort-arrow"></span></th>
+        <th data-key="hhi" class="right">HHI <span class="sort-arrow"></span></th>
+        <th data-key="top5Pct" class="right">Top-5% <span class="sort-arrow"></span></th>
         <th data-key="hasValidationHook">Hook <span class="sort-arrow"></span></th>
         <th class="wrap">Flags</th>
         <th>Links</th>
@@ -283,10 +285,37 @@ function renderCharts(data) {
       '<div class="bar-label">' + a.name + '</div></div>';
   }).join('');
 
+  // Chart 3: Concentration (HHI & Late-bid %)
+  var concAuctions = real.filter(function(a) { return a.concentration; });
+  var chart3Html = '';
+  if (concAuctions.length > 0) {
+    var maxHhi = 10000; // HHI max is always 10000
+    var chart3Bars = concAuctions.map(function(a) {
+      var c = a.concentration;
+      var hHhi = Math.max(4, (c.hhi / maxHhi) * 140);
+      var hLate = Math.max(4, (c.lateBidPct / 100) * 140);
+      var hhiColor = c.hhi < 1500 ? 'var(--green)' : c.hhi < 2500 ? 'var(--amber)' : 'var(--red)';
+      return '<div class="bar-group">' +
+        '<div class="bar-wrapper">' +
+        '<div class="bar" style="height:' + hHhi + 'px;background:' + hhiColor + ';width:20px;" title="HHI: ' + c.hhi + (c.effectiveCompetition ? ' (competitive)' : ' (concentrated)') + '"><div class="bar-value" style="position:absolute;top:-18px;width:100%;text-align:center;">' + c.hhi + '</div></div>' +
+        '<div class="bar" style="height:' + hLate + 'px;background:var(--accent);width:20px;" title="Late bids: ' + c.lateBidPct + '%"></div>' +
+        '</div>' +
+        '<div class="bar-label">' + a.name + '</div></div>';
+    }).join('');
+    chart3Html = '<div class="chart-card"><h3>Concentration & Late Bids</h3><div class="bar-chart" style="position:relative;">' + chart3Bars + '</div>' +
+      '<div class="chart-legend">' +
+      '<div class="legend-item"><div class="legend-dot" style="background:var(--green);"></div>HHI &lt;1500</div>' +
+      '<div class="legend-item"><div class="legend-dot" style="background:var(--amber);"></div>HHI 1500-2500</div>' +
+      '<div class="legend-item"><div class="legend-dot" style="background:var(--red);"></div>HHI &gt;2500</div>' +
+      '<div class="legend-item"><div class="legend-dot" style="background:var(--accent);"></div>Late-bid %</div>' +
+      '</div></div>';
+  }
+
   document.getElementById('charts').innerHTML =
     '<div class="chart-card"><h3>Clearing vs Floor Price</h3><div class="bar-chart" style="position:relative;">' + chart1Bars + '</div></div>' +
     '<div class="chart-card"><h3>Bids & Unique Bidders</h3><div class="bar-chart" style="position:relative;">' + chart2Bars + '</div>' +
-    '<div class="chart-legend"><div class="legend-item"><div class="legend-dot" style="background:var(--accent);"></div>Total bids</div><div class="legend-item"><div class="legend-dot" style="background:var(--green);"></div>Unique bidders</div></div></div>';
+    '<div class="chart-legend"><div class="legend-item"><div class="legend-dot" style="background:var(--accent);"></div>Total bids</div><div class="legend-item"><div class="legend-dot" style="background:var(--green);"></div>Unique bidders</div></div></div>' +
+    chart3Html;
 }
 
 function parseRaised(a) {
@@ -305,6 +334,8 @@ function getSortValue(a, key) {
     case 'uniqueBidders': return a.uniqueBidders || 0;
     case 'durationHours': return a.durationHours || 0;
     case 'clearingVsFloor': return parseFloat(a.clearingVsFloor) || 0;
+    case 'hhi': return a.concentration ? a.concentration.hhi : -1;
+    case 'top5Pct': return a.concentration ? a.concentration.top5Pct : -1;
     case 'hasValidationHook': return a.hasValidationHook ? 1 : 0;
     default: return '';
   }
@@ -376,6 +407,8 @@ function renderTable(data) {
       '<td class="right">' + (a.uniqueBidders != null ? a.uniqueBidders.toLocaleString() : '—') + '</td>' +
       '<td class="right">' + durationDays + 'd<br><span class="mono">' + a.durationHours + 'h</span></td>' +
       '<td class="right"><strong>' + (a.clearingVsFloor || '—') + '</strong></td>' +
+      '<td class="right">' + (a.concentration ? '<span style="color:' + (a.concentration.hhi < 1500 ? 'var(--green)' : a.concentration.hhi < 2500 ? 'var(--amber)' : 'var(--red)') + '">' + a.concentration.hhi + '</span>' : '—') + '</td>' +
+      '<td class="right">' + (a.concentration ? a.concentration.top5Pct + '%' : '—') + '</td>' +
       '<td>' + hookBadge + '</td>' +
       '<td class="wrap">' + (flags || '—') + '</td>' +
       '<td><a href="' + uniswapUrl + '" target="_blank">Uniswap</a> | <a href="' + explorerUrl + '" target="_blank">Explorer</a></td>' +
