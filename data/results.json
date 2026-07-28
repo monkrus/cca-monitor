@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-21T02:31:30.467Z",
+  "timestamp": "2026-07-28T05:22:02.573Z",
   "summary": {
     "total": 15,
     "real": 4,
@@ -55,6 +55,13 @@
       "uniqueBidders": 14096,
       "totalBids": 17232,
       "bidScanPartial": false,
+      "concentration": {
+        "hhi": 59,
+        "top5Pct": 6.01,
+        "top5Count": 5,
+        "lateBidPct": 17.25,
+        "effectiveCompetition": true
+      },
       "repeatBidders": 63
     },
     {
@@ -65,7 +72,7 @@
       "tokenAddress": "0x4c93B9FbF7Fd1777CCBcBc538B1d0a8b58fB1ad6",
       "tokenName": "Ethereum STRATO",
       "tokenSymbol": "STRATO",
-      "tokenSupply": "2,504,678",
+      "tokenSupply": "2,472,342",
       "startBlock": "25237800",
       "endBlock": "25295401",
       "floorPrice_Q96": "10424758225561097051782096",
@@ -93,6 +100,13 @@
       "uniqueBidders": 291,
       "totalBids": 575,
       "bidScanPartial": false,
+      "concentration": {
+        "hhi": 468,
+        "top5Pct": 38.44,
+        "top5Count": 5,
+        "lateBidPct": 12.17,
+        "effectiveCompetition": true
+      },
       "repeatBidders": 22
     },
     {
@@ -103,7 +117,7 @@
       "tokenAddress": "0x4647e1fE715c9e23959022C2416C71867F5a6E80",
       "tokenName": "Wrapped OCT",
       "tokenSymbol": "wOCT",
-      "tokenSupply": "197,789,585",
+      "tokenSupply": "197,604,181",
       "startBlock": "24870973",
       "endBlock": "24921374",
       "floorPrice_Q96": "4294967300",
@@ -130,6 +144,13 @@
       "uniqueBidders": 812,
       "totalBids": 1867,
       "bidScanPartial": false,
+      "concentration": {
+        "hhi": 1025,
+        "top5Pct": 60.65,
+        "top5Count": 5,
+        "lateBidPct": 7.12,
+        "effectiveCompetition": true
+      },
       "repeatBidders": 46
     },
     {
@@ -167,6 +188,13 @@
       "uniqueBidders": 416,
       "totalBids": 1002,
       "bidScanPartial": false,
+      "concentration": {
+        "hhi": 293,
+        "top5Pct": 25.57,
+        "top5Count": 5,
+        "lateBidPct": 5.99,
+        "effectiveCompetition": true
+      },
       "repeatBidders": 50
     },
     {
@@ -279,7 +307,14 @@
       ],
       "uniqueBidders": 1,
       "totalBids": 1,
-      "bidScanPartial": false
+      "bidScanPartial": false,
+      "concentration": {
+        "hhi": 10000,
+        "top5Pct": 100,
+        "top5Count": 1,
+        "lateBidPct": 0,
+        "effectiveCompetition": false
+      }
     },
     {
       "name": "TEST_DEC26A",
@@ -392,7 +427,14 @@
       ],
       "uniqueBidders": 1,
       "totalBids": 1,
-      "bidScanPartial": false
+      "bidScanPartial": false,
+      "concentration": {
+        "hhi": 10000,
+        "top5Pct": 100,
+        "top5Count": 1,
+        "lateBidPct": 0,
+        "effectiveCompetition": false
+      }
     },
     {
       "name": "TEST_JAN19",
@@ -573,7 +615,14 @@
       ],
       "uniqueBidders": 1,
       "totalBids": 1,
-      "bidScanPartial": false
+      "bidScanPartial": false,
+      "concentration": {
+        "hhi": 10000,
+        "top5Pct": 100,
+        "top5Count": 1,
+        "lateBidPct": 0,
+        "effectiveCompetition": false
+      }
     }
   ]
 }
