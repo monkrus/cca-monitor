@@ -1873,6 +1873,27 @@ async function main() {
       console.log(row)
     }
 
+    // ── Post-graduation price snapshot (DexScreener) ──────────────────
+    console.log(`\nPOST-GRADUATION PRICE SNAPSHOT`)
+    console.log('='.repeat(60))
+    for (const r of real) {
+      if (!r.graduated || !(r as any).tokenAddress) continue
+      try {
+        const price = await fetchTokenPrice((r as any).tokenAddress, r.chain)
+        if (price) {
+          ;(r as any).currentPriceUsd = price.priceUsd
+          ;(r as any).priceChange24h = price.change24h
+          ;(r as any).volume24h = price.volume24h
+          ;(r as any).priceSnapshotAt = new Date().toISOString()
+          console.log(`  ${r.name}: $${parseFloat(price.priceUsd).toFixed(6)} (24h: ${price.change24h}%)`)
+        } else {
+          console.log(`  ${r.name}: no DEX pool found`)
+        }
+      } catch {
+        console.log(`  ${r.name}: price fetch failed`)
+      }
+    }
+
     // Strip internal _bidderAddresses before saving
     for (const r of results) delete (r as any)._bidderAddresses
 

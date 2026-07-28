@@ -63,6 +63,27 @@ Each auction record includes:
 | `hasValidationHook` | KYC/allowlist hook present |
 | `totalRaised` | Total currency committed |
 | `flags` | Risk flags (short duration, no hook, etc.) |
+| `currentPriceUsd` | Current token price from DexScreener (graduated tokens) |
+| `priceChange24h` | 24-hour price change percentage |
+| `volume24h` | 24-hour trading volume in USD |
+
+## API
+
+A Cloudflare Worker serves the dataset as a REST API (free tier: 100K requests/day).
+
+```bash
+cd api && npx wrangler deploy   # deploy to Cloudflare
+cd api && npx wrangler dev      # local dev server
+```
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/auctions` | All auctions (query: `?chain=mainnet&status=graduated&hook=true&q=AZTEC&test=true`) |
+| `GET /api/v1/auctions/:name` | Single auction by name or symbol |
+| `GET /api/v1/summary` | Summary stats + bidder insights |
+| `GET /api/v1/overlap` | Bidder overlap matrix |
+
+CORS enabled. Responses cached 5 minutes.
 
 ## Webhook Alerts
 

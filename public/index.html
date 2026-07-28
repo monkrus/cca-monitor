@@ -66,10 +66,35 @@
   .chord-container { display: flex; justify-content: center; align-items: center; }
   .chord-container canvas { max-width: 100%; height: auto; }
 
+  /* Price performance sparkline area */
+  .price-row { display: flex; gap: 16px; padding: 0 32px 24px; flex-wrap: wrap; }
+  .price-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px 20px; flex: 1; min-width: 200px;
+  }
+  .price-card .price-token { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .price-card .price-usd { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .price-card .price-change { font-size: 13px; font-weight: 600; margin-left: 8px; }
+  .price-card .price-change.up { color: var(--green); }
+  .price-card .price-change.down { color: var(--red); }
+  .price-card .price-meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
   .table-wrap { padding: 0 32px 32px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .table-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; flex-wrap: wrap; }
   .table-header h2 { font-size: 15px; font-weight: 600; }
   .table-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .filter-bar {
+    display: flex; gap: 8px; padding: 0 32px 16px; flex-wrap: wrap; align-items: center;
+  }
+  .filter-bar input, .filter-bar select {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; font-family: inherit;
+    transition: border-color 0.15s;
+  }
+  .filter-bar input:focus, .filter-bar select:focus { outline: none; border-color: var(--accent); }
+  .filter-bar input { min-width: 180px; }
+  .filter-bar select { cursor: pointer; }
+  .filter-bar .filter-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .toggle-btn, .export-btn {
     background: var(--surface); border: 1px solid var(--border); color: var(--muted);
     padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
@@ -170,6 +195,10 @@
     .bar-chart { gap: 6px; height: 120px; }
     .bar-label { font-size: 9px; }
     .cta-bar { margin: 0 16px 16px; padding: 12px 16px; flex-direction: column; text-align: center; }
+    .price-row { padding: 0 16px 16px; }
+    .price-card { min-width: 0; flex-basis: calc(50% - 8px); }
+    .filter-bar { padding: 0 16px 12px; }
+    .filter-bar input { min-width: 120px; flex: 1; }
     .table-wrap { padding: 0 16px 32px; }
     .table-header { flex-direction: column; align-items: flex-start; }
     table { font-size: 12px; }
@@ -202,9 +231,33 @@
   <a href="https://t.me/cca_auctions" class="cta-btn" target="_blank">Join Telegram Channel</a>
 </div>
 
+<div class="price-row" id="priceRow"></div>
+
+<div class="filter-bar">
+  <span class="filter-label">Filter:</span>
+  <input type="text" id="searchInput" placeholder="Search token name..." oninput="applyFilters()">
+  <select id="chainFilter" onchange="applyFilters()">
+    <option value="">All chains</option>
+    <option value="mainnet">Mainnet</option>
+    <option value="base">Base</option>
+    <option value="arbitrum">Arbitrum</option>
+    <option value="unichain">Unichain</option>
+  </select>
+  <select id="statusFilter" onchange="applyFilters()">
+    <option value="">All status</option>
+    <option value="graduated">Graduated</option>
+    <option value="failed">Failed</option>
+  </select>
+  <select id="hookFilter" onchange="applyFilters()">
+    <option value="">Any hook</option>
+    <option value="yes">With hook</option>
+    <option value="no">No hook</option>
+  </select>
+</div>
+
 <div class="table-wrap">
   <div class="table-header">
-    <h2>Auctions</h2>
+    <h2>Auctions <span id="filterCount" style="font-size:12px;color:var(--muted);font-weight:400;"></span></h2>
     <div class="table-controls">
       <button class="export-btn" onclick="exportJSON()" title="Download full dataset as JSON">JSON</button>
       <button class="export-btn" onclick="exportCSV()" title="Download auction table as CSV">CSV</button>
@@ -243,6 +296,10 @@ var showTests = false;
 var sortKey = null;
 var sortAsc = true;
 var expandedRow = null;
+var filterSearch = '';
+var filterChain = '';
+var filterStatus = '';
+var filterHook = '';
 
 async function load() {
   try {
@@ -274,6 +331,28 @@ function toggleTests() {
   if (allData) renderTable(allData);
 }
 
+function applyFilters() {
+  filterSearch = (document.getElementById('searchInput').value || '').toLowerCase();
+  filterChain = document.getElementById('chainFilter').value;
+  filterStatus = document.getElementById('statusFilter').value;
+  filterHook = document.getElementById('hookFilter').value;
+  expandedRow = null;
+  if (allData) renderTable(allData);
+}
+
+function matchesFilters(a) {
+  if (filterSearch) {
+    var haystack = ((a.name || '') + ' ' + (a.tokenSymbol || '') + ' ' + (a.tokenName || '')).toLowerCase();
+    if (haystack.indexOf(filterSearch) < 0) return false;
+  }
+  if (filterChain && a.chain !== filterChain) return false;
+  if (filterStatus === 'graduated' && !a.graduated) return false;
+  if (filterStatus === 'failed' && a.graduated !== false) return false;
+  if (filterHook === 'yes' && !a.hasValidationHook) return false;
+  if (filterHook === 'no' && a.hasValidationHook) return false;
+  return true;
+}
+
 function render(data) {
   var date = new Date(data.timestamp);
   var real = data.auctions.filter(function(a) { return !a.isTest; });
@@ -291,6 +370,7 @@ function render(data) {
   }).join('');
   document.getElementById('stats').innerHTML = statsHtml;
 
+  renderPriceRow(data);
   renderCharts(data);
   renderTable(data);
 
@@ -303,6 +383,29 @@ function render(data) {
       renderTable(allData);
     });
   });
+}
+
+function renderPriceRow(data) {
+  var real = data.auctions.filter(function(a) { return !a.isTest && a.graduated && a.currentPriceUsd; });
+  if (real.length === 0) {
+    document.getElementById('priceRow').innerHTML = '';
+    return;
+  }
+  document.getElementById('priceRow').innerHTML = real.map(function(a) {
+    var price = parseFloat(a.currentPriceUsd);
+    var change = parseFloat(a.priceChange24h || '0');
+    var changeCls = change >= 0 ? 'up' : 'down';
+    var changeStr = (change >= 0 ? '+' : '') + change.toFixed(1) + '%';
+    var vol = a.volume24h ? '$' + parseFloat(a.volume24h).toLocaleString('en-US', {maximumFractionDigits: 0}) : '';
+    var when = a.priceSnapshotAt ? new Date(a.priceSnapshotAt).toLocaleString() : '';
+    return '<div class="price-card">' +
+      '<div class="price-token">' + (a.tokenSymbol || a.name) + '</div>' +
+      '<span class="price-usd">$' + price.toFixed(6) + '</span>' +
+      '<span class="price-change ' + changeCls + '">' + changeStr + ' 24h</span>' +
+      (vol ? '<div class="price-meta">Vol: ' + vol + '</div>' : '') +
+      (when ? '<div class="price-meta">Snapshot: ' + when + '</div>' : '') +
+      '</div>';
+  }).join('');
 }
 
 function renderCharts(data) {
@@ -548,6 +651,16 @@ function buildDetailPanel(a) {
     { label: 'Tick Spacing', value: a.tickSpacingAsPctOfFloor || '?', cls: '' },
   ];
 
+  // Add price data if available
+  if (a.currentPriceUsd) {
+    var change = parseFloat(a.priceChange24h || '0');
+    var changeCls = change >= 0 ? 'green' : 'red';
+    var changeStr = (change >= 0 ? '+' : '') + change.toFixed(1) + '%';
+    items.push({ label: 'Current Price', value: '$' + parseFloat(a.currentPriceUsd).toFixed(6), cls: '' });
+    items.push({ label: '24h Change', value: changeStr, cls: changeCls });
+    if (a.volume24h) items.push({ label: '24h Volume', value: '$' + parseFloat(a.volume24h).toLocaleString('en-US', {maximumFractionDigits: 0}), cls: '' });
+  }
+
   var gridHtml = items.map(function(item) {
     return '<div class="detail-item"><div class="detail-label">' + item.label + '</div><div class="detail-value ' + item.cls + '">' + item.value + '</div></div>';
   }).join('');
@@ -587,6 +700,10 @@ function buildDetailPanel(a) {
 
 function renderTable(data) {
   var auctions = showTests ? data.auctions.slice() : data.auctions.filter(function(a) { return !a.isTest; });
+  auctions = auctions.filter(matchesFilters);
+  var totalBeforeFilter = showTests ? data.auctions.length : data.auctions.filter(function(a) { return !a.isTest; }).length;
+  var countEl = document.getElementById('filterCount');
+  if (countEl) countEl.textContent = auctions.length < totalBeforeFilter ? '(' + auctions.length + ' of ' + totalBeforeFilter + ')' : '';
 
   if (sortKey) {
     auctions.sort(function(a, b) {

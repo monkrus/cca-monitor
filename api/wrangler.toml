@@ -1,0 +1,10 @@
+name = "cca-monitor-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Deploy: npx wrangler deploy
+# Dev:    npx wrangler dev
+# Free tier: 100K requests/day
+
+[triggers]
+crons = []
