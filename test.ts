@@ -250,8 +250,8 @@ console.log('\n--- Layer 1c: Dataset integrity tests ---\n')
   const allAuctions = data.auctions || []
   const testRecords = allAuctions.filter((a: any) => a.isTest)
   const realRecords = allAuctions.filter((a: any) => !a.isTest)
-  assert(allAuctions.length === 15, `results.json has 15 records (got ${allAuctions.length})`)
-  assert(realRecords.length === 4, `results.json has 4 real auctions (got ${realRecords.length})`)
+  assert(allAuctions.length === 16, `results.json has 16 records (got ${allAuctions.length})`)
+  assert(realRecords.length === 5, `results.json has 5 real auctions (got ${realRecords.length})`)
   assert(testRecords.length === 11, `results.json has 11 test auctions (got ${testRecords.length})`)
 
   // Verify no duplicates by contractAddress

@@ -1,6 +1,6 @@
 {
-  "minTotalAuctions": 15,
-  "minRealAuctions": 4,
+  "minTotalAuctions": 16,
+  "minRealAuctions": 5,
   "minTestAuctions": 11,
   "expectedBidderIndexEntries": 15520,
   "expectedRepeatBidders": 86,

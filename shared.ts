@@ -176,9 +176,28 @@ export async function getLogsChunked(
 export function writeJsonAtomic(file: string, obj: any) {
   const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '.'
   if (dir !== '.') fs.mkdirSync(dir, { recursive: true })
+  const data = JSON.stringify(obj, null, 2)
   const tmp = file + '.tmp'
-  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2))
-  fs.renameSync(tmp, file)
+  fs.writeFileSync(tmp, data)
+  // On Windows, renameSync can fail with EPERM if antivirus or another
+  // process briefly locks the target file. Retry a few times before
+  // falling back to a direct overwrite.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      fs.renameSync(tmp, file)
+      return
+    } catch (err: any) {
+      if (err.code !== 'EPERM' && err.code !== 'EACCES') throw err
+      if (attempt < 2) {
+        const ms = (attempt + 1) * 50
+        const until = Date.now() + ms
+        while (Date.now() < until) { /* busy-wait: no async available */ }
+      }
+    }
+  }
+  // Rename still failing — fall back to direct write (non-atomic but safe)
+  try { fs.unlinkSync(tmp) } catch {}
+  fs.writeFileSync(file, data)
 }
 
 // ─── Guarded JSON read ──────────────────────────────────────────────────────

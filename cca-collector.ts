@@ -68,6 +68,14 @@ const KNOWN_AUCTIONS = [
     notes: '1,002 bids, 5.5x oversubscribed, $106M FDV, $3.8M USDC raised (cleared bids), floor $75M FDV, cleared at $0.011/CAP. Token: rCAP.',
     isTest: false,
   },
+  {
+    name: 'AKITA',
+    chain: 'base',
+    contractAddress: '0x84a0cBb49D18FD74598D1b7bAba2EEa6679F1dA8' as `0x${string}`,
+    startBlock: 0n,
+    notes: 'Akita Share Token. Auto-detected 2026-07-28 on Base. 7-day auction, ETH currency.',
+    isTest: false,
+  },
   // ── Test/early auctions on Base (Dec 2025 – Jan 2026) ─────────────────────
   // All failed graduation, tiny tick spacing, no bids — confirmed test deployments
   { name: 'TEST_DEC08',  chain: 'base', contractAddress: '0x090e15d1807e2173c6e9531cfd4701fcd3c04ede' as `0x${string}`, startBlock: 39206206n, notes: 'Dec 8 2025 — test deployment',  isTest: true },
