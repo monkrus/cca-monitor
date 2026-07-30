@@ -506,17 +506,21 @@ function drawChord(overlapMatrix, auctions) {
   // Get bidder counts per auction for arc sizing
   var auctionMap = {};
   auctions.forEach(function(a) { if (!a.isTest) auctionMap[a.name] = a; });
-  var bidderCounts = names.map(function(name) { return (auctionMap[name] && auctionMap[name].uniqueBidders) || 1; });
+  var bidderCounts = names.map(function(name) { return (auctionMap[name] && auctionMap[name].uniqueBidders) || 0; });
   var totalBidders = bidderCounts.reduce(function(s, v) { return s + v; }, 0);
+  if (totalBidders === 0) return;
 
-  // Compute arc angles proportional to bidder count
+  // Compute arc angles proportional to bidder count, with minimum arc for zero-bidder auctions
   var gap = 0.06;
   var totalGap = gap * n;
-  var availableAngle = 2 * Math.PI - totalGap;
+  var minSweep = 0.15; // minimum arc so labels don't overlap
+  var zeroCount = bidderCounts.filter(function(c) { return c === 0; }).length;
+  var reservedAngle = minSweep * zeroCount;
+  var availableAngle = 2 * Math.PI - totalGap - reservedAngle;
   var arcs = [];
   var angle = -Math.PI / 2;
   for (var i = 0; i < n; i++) {
-    var sweep = (bidderCounts[i] / totalBidders) * availableAngle;
+    var sweep = bidderCounts[i] > 0 ? (bidderCounts[i] / totalBidders) * availableAngle : minSweep;
     arcs.push({ start: angle, end: angle + sweep, mid: angle + sweep / 2, color: colors[i % colors.length], name: names[i] });
     angle += sweep + gap;
   }
@@ -578,16 +582,30 @@ function drawChord(overlapMatrix, auctions) {
     }
   }
 
-  // Draw labels outside arcs
-  ctx.fillStyle = '#e2e8f0';
+  // Draw labels outside arcs with collision avoidance
   ctx.font = '600 12px Inter, system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  var labelPositions = [];
   for (var i = 0; i < n; i++) {
     var lx = cx + (R + 24) * Math.cos(arcs[i].mid);
     var ly = cy + (R + 24) * Math.sin(arcs[i].mid);
-    ctx.fillStyle = arcs[i].color;
-    ctx.fillText(arcs[i].name, lx, ly);
+    // Push apart from previous labels if too close
+    for (var p = 0; p < labelPositions.length; p++) {
+      var dx = lx - labelPositions[p].x, dy = ly - labelPositions[p].y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 18) {
+        var push = (18 - dist) / 2;
+        var nx = dx / (dist || 1), ny = dy / (dist || 1);
+        lx += nx * push; ly += ny * push;
+        labelPositions[p].x -= nx * push; labelPositions[p].y -= ny * push;
+      }
+    }
+    labelPositions.push({ x: lx, y: ly, i: i });
+  }
+  for (var p = 0; p < labelPositions.length; p++) {
+    ctx.fillStyle = arcs[labelPositions[p].i].color;
+    ctx.fillText(arcs[labelPositions[p].i].name, labelPositions[p].x, labelPositions[p].y);
   }
 
   // Legend
