@@ -456,7 +456,7 @@ function renderCharts(data) {
       return '<div class="bar-group">' +
         '<div class="bar-wrapper">' +
         '<div class="bar" style="height:' + hHhi + 'px;background:' + hhiColor + ';width:20px;" title="HHI: ' + c.hhi + (c.effectiveCompetition ? ' (competitive)' : ' (concentrated)') + '"><div class="bar-value" style="position:absolute;top:-18px;width:100%;text-align:center;">' + c.hhi + '</div></div>' +
-        '<div class="bar" style="height:' + hLate + 'px;background:var(--accent);width:20px;" title="Late bids: ' + c.lateBidPct + '%"></div>' +
+        '<div class="bar" style="height:' + hLate + 'px;background:var(--accent);width:20px;" title="Late bids: ' + c.lateBidPct + '%"><div class="bar-value" style="position:absolute;top:-18px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:9px;">' + c.lateBidPct + '%</div></div>' +
         '</div>' +
         '<div class="bar-label">' + a.name + '</div></div>';
     }).join('');
