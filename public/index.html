@@ -423,7 +423,7 @@ function renderCharts(data) {
 
   var chart1Bars = real.map(function(a) {
     var ratio = parseFloat(a.clearingVsFloor) || 0;
-    var h = maxRatio > 0 ? Math.max(4, (ratio / maxRatio) * 140) : 4;
+    var h = maxRatio > 0 ? Math.max(4, (ratio / maxRatio) * 110) : 4;
     var label = ratio > 0 ? ratio.toFixed(0) + '%' : 'n/a';
     return '<div class="bar-group">' +
       '<div class="bar-wrapper"><div class="bar" style="height:' + h + 'px;background:var(--accent);width:32px;" title="' + label + '"><div class="bar-value" style="position:absolute;top:-18px;width:100%;text-align:center;">' + label + '</div></div></div>' +
