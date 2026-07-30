@@ -513,7 +513,7 @@ function drawChord(overlapMatrix, auctions) {
   // Compute arc angles proportional to bidder count, with minimum arc for zero-bidder auctions
   var gap = 0.06;
   var totalGap = gap * n;
-  var minSweep = 0.15; // minimum arc so labels don't overlap
+  var minSweep = 0.25; // minimum arc so labels don't overlap
   var zeroCount = bidderCounts.filter(function(c) { return c === 0; }).length;
   var reservedAngle = minSweep * zeroCount;
   var availableAngle = 2 * Math.PI - totalGap - reservedAngle;
@@ -586,22 +586,31 @@ function drawChord(overlapMatrix, auctions) {
   ctx.font = '600 12px Inter, system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  var labelR = R + 28;
   var labelPositions = [];
   for (var i = 0; i < n; i++) {
-    var lx = cx + (R + 24) * Math.cos(arcs[i].mid);
-    var ly = cy + (R + 24) * Math.sin(arcs[i].mid);
-    // Push apart from previous labels if too close
-    for (var p = 0; p < labelPositions.length; p++) {
-      var dx = lx - labelPositions[p].x, dy = ly - labelPositions[p].y;
-      var dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 18) {
-        var push = (18 - dist) / 2;
-        var nx = dx / (dist || 1), ny = dy / (dist || 1);
-        lx += nx * push; ly += ny * push;
-        labelPositions[p].x -= nx * push; labelPositions[p].y -= ny * push;
+    var lx = cx + labelR * Math.cos(arcs[i].mid);
+    var ly = cy + labelR * Math.sin(arcs[i].mid);
+    labelPositions.push({ x: lx, y: ly, i: i });
+  }
+  // Multiple passes to separate overlapping labels
+  for (var pass = 0; pass < 5; pass++) {
+    for (var i = 0; i < labelPositions.length; i++) {
+      for (var j = i + 1; j < labelPositions.length; j++) {
+        var dx = labelPositions[j].x - labelPositions[i].x;
+        var dy = labelPositions[j].y - labelPositions[i].y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        var minDist = 30;
+        if (dist < minDist && dist > 0) {
+          var push = (minDist - dist) / 2;
+          var nx = dx / dist, ny = dy / dist;
+          labelPositions[j].x += nx * push;
+          labelPositions[j].y += ny * push;
+          labelPositions[i].x -= nx * push;
+          labelPositions[i].y -= ny * push;
+        }
       }
     }
-    labelPositions.push({ x: lx, y: ly, i: i });
   }
   for (var p = 0; p < labelPositions.length; p++) {
     ctx.fillStyle = arcs[labelPositions[p].i].color;
