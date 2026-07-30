@@ -478,7 +478,7 @@ function renderCharts(data) {
     var names = Object.keys(om);
     if (names.length >= 2) {
       chordHtml = '<div class="chart-card"><h3>Cross-Auction Bidder Flow</h3>' +
-        '<p style="color:var(--muted);font-size:0.8rem;margin:0 0 8px 0;">Arc size = number of unique bidders. Lines connect auctions that share bidders, with the number showing how many wallets bid in both. Thicker lines = more overlap.</p>' +
+        '<p style="color:var(--muted);font-size:0.8rem;margin:0 0 8px 0;">Each auction is shown as a colored arc — larger arc = more unique bidders. The numbers on the connecting lines show how many wallets participated in both auctions. Thicker lines = stronger overlap.</p>' +
         '<div class="chord-container"><canvas id="chordCanvas" width="320" height="320"></canvas></div>' +
         '<div class="chart-legend" id="chordLegend"></div></div>';
     }
