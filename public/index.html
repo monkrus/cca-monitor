@@ -42,11 +42,11 @@
   .stat-card .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
   .charts-row {
-    display: flex; gap: 16px; padding: 0 32px 24px; flex-wrap: wrap;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 32px 24px;
   }
   .chart-card {
     background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-    padding: 20px; flex: 1; min-width: 300px;
+    padding: 20px;
   }
   .chart-card h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 16px; }
   .bar-chart { display: flex; align-items: flex-end; gap: 12px; height: 160px; padding-top: 8px; }
@@ -190,8 +190,8 @@
     .stat-card { min-width: 0; flex-basis: calc(50% - 4px); padding: 12px; }
     .stat-card .value { font-size: 18px; }
     .stat-card .sub { font-size: 10px; }
-    .charts-row { padding: 0 16px 16px; flex-direction: column; }
-    .chart-card { min-width: unset; padding: 16px; }
+    .charts-row { padding: 0 16px 16px; grid-template-columns: 1fr; }
+    .chart-card { padding: 16px; }
     .bar-chart { gap: 6px; height: 120px; }
     .bar-label { font-size: 9px; }
     .cta-bar { margin: 0 16px 16px; padding: 12px 16px; flex-direction: column; text-align: center; }
@@ -485,8 +485,12 @@ function renderCharts(data) {
   }
 
   document.getElementById('charts').innerHTML =
-    '<div class="chart-card"><h3>Clearing vs Floor Price</h3><div class="bar-chart" style="position:relative;">' + chart1Bars + '</div></div>' +
-    '<div class="chart-card"><h3>Bids & Unique Bidders</h3><div class="bar-chart" style="position:relative;">' + chart2Bars + '</div>' +
+    '<div class="chart-card"><h3>Clearing vs Floor Price</h3>' +
+    '<p style="color:var(--muted);font-size:0.8rem;margin:0 0 8px 0;">How much the final clearing price exceeded the floor (minimum) price. Higher = more demand. 100% means it cleared exactly at the floor.</p>' +
+    '<div class="bar-chart" style="position:relative;">' + chart1Bars + '</div></div>' +
+    '<div class="chart-card"><h3>Bids & Unique Bidders</h3>' +
+    '<p style="color:var(--muted);font-size:0.8rem;margin:0 0 8px 0;">Total number of bids submitted vs unique wallet addresses. A high bid-to-bidder ratio means participants placed multiple bids.</p>' +
+    '<div class="bar-chart" style="position:relative;">' + chart2Bars + '</div>' +
     '<div class="chart-legend"><div class="legend-item"><div class="legend-dot" style="background:var(--accent);"></div>Total bids</div><div class="legend-item"><div class="legend-dot" style="background:var(--green);"></div>Unique bidders</div></div></div>' +
     chart3Html + chordHtml;
 
