@@ -437,8 +437,8 @@ function renderCharts(data) {
     var hBidders = maxBids > 0 ? Math.max(4, (bidders / maxBids) * 140) : 4;
     return '<div class="bar-group">' +
       '<div class="bar-wrapper">' +
-      '<div class="bar" style="height:' + hBids + 'px;background:var(--accent);width:20px;" title="' + bids.toLocaleString() + ' bids"><div class="bar-value" style="position:absolute;top:-18px;width:100%;text-align:center;">' + bids.toLocaleString() + '</div></div>' +
-      '<div class="bar" style="height:' + hBidders + 'px;background:var(--green);width:20px;" title="' + bidders.toLocaleString() + ' bidders"><div class="bar-value" style="position:absolute;top:-18px;width:100%;text-align:center;">' + bidders.toLocaleString() + '</div></div>' +
+      '<div class="bar" style="height:' + hBids + 'px;background:var(--accent);width:20px;" title="' + bids.toLocaleString() + ' bids"><div class="bar-value" style="position:absolute;top:-18px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:9px;">' + bids.toLocaleString() + '</div></div>' +
+      '<div class="bar" style="height:' + hBidders + 'px;background:var(--green);width:20px;" title="' + bidders.toLocaleString() + ' bidders"><div class="bar-value" style="position:absolute;top:-18px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:9px;">' + bidders.toLocaleString() + '</div></div>' +
       '</div>' +
       '<div class="bar-label">' + a.name + '</div></div>';
   }).join('');
