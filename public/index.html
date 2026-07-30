@@ -460,7 +460,9 @@ function renderCharts(data) {
         '</div>' +
         '<div class="bar-label">' + a.name + '</div></div>';
     }).join('');
-    chart3Html = '<div class="chart-card"><h3>Concentration & Late Bids</h3><div class="bar-chart" style="position:relative;">' + chart3Bars + '</div>' +
+    chart3Html = '<div class="chart-card"><h3>Concentration & Late Bids</h3>' +
+      '<p style="color:var(--muted);font-size:0.8rem;margin:0 0 8px 0;">HHI (Herfindahl-Hirschman Index) measures how evenly bids are spread across wallets. Lower = more competitive. Under 1,500 is healthy, over 2,500 means a few whales dominate.</p>' +
+      '<div class="bar-chart" style="position:relative;">' + chart3Bars + '</div>' +
       '<div class="chart-legend">' +
       '<div class="legend-item"><div class="legend-dot" style="background:var(--green);"></div>HHI &lt;1500</div>' +
       '<div class="legend-item"><div class="legend-dot" style="background:var(--amber);"></div>HHI 1500-2500</div>' +
@@ -476,6 +478,7 @@ function renderCharts(data) {
     var names = Object.keys(om);
     if (names.length >= 2) {
       chordHtml = '<div class="chart-card"><h3>Cross-Auction Bidder Flow</h3>' +
+        '<p style="color:var(--muted);font-size:0.8rem;margin:0 0 8px 0;">Arc size = number of unique bidders. Lines connect auctions that share bidders, with the number showing how many wallets bid in both. Thicker lines = more overlap.</p>' +
         '<div class="chord-container"><canvas id="chordCanvas" width="320" height="320"></canvas></div>' +
         '<div class="chart-legend" id="chordLegend"></div></div>';
     }
@@ -623,7 +626,7 @@ function drawChord(overlapMatrix, auctions) {
     legendEl.innerHTML = names.map(function(name, i) {
       var count = bidderCounts[i];
       return '<div class="legend-item"><div class="legend-dot" style="background:' + arcs[i].color + ';"></div>' + name + ' (' + count.toLocaleString() + ')</div>';
-    }).join('') + '<div class="legend-item" style="color:var(--muted);font-style:italic;">Lines = shared bidders</div>';
+    }).join('');
   }
 }
 
