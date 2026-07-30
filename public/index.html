@@ -433,8 +433,8 @@ function renderCharts(data) {
   var chart2Bars = real.map(function(a) {
     var bids = a.totalBids || 0;
     var bidders = a.uniqueBidders || 0;
-    var hBids = maxBids > 0 ? Math.max(4, (bids / maxBids) * 140) : 4;
-    var hBidders = maxBids > 0 ? Math.max(4, (bidders / maxBids) * 140) : 4;
+    var hBids = maxBids > 0 ? Math.max(4, (bids / maxBids) * 110) : 4;
+    var hBidders = maxBids > 0 ? Math.max(4, (bidders / maxBids) * 110) : 4;
     return '<div class="bar-group">' +
       '<div class="bar-wrapper">' +
       '<div class="bar" style="height:' + hBids + 'px;background:var(--accent);width:20px;" title="' + bids.toLocaleString() + ' bids"><div class="bar-value" style="position:absolute;top:-18px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:9px;">' + bids.toLocaleString() + '</div></div>' +
@@ -450,8 +450,8 @@ function renderCharts(data) {
     var maxHhi = 10000;
     var chart3Bars = concAuctions.map(function(a) {
       var c = a.concentration;
-      var hHhi = Math.max(4, (c.hhi / maxHhi) * 140);
-      var hLate = Math.max(4, (c.lateBidPct / 100) * 140);
+      var hHhi = Math.max(4, (c.hhi / maxHhi) * 110);
+      var hLate = Math.max(4, (c.lateBidPct / 100) * 110);
       var hhiColor = c.hhi < 1500 ? 'var(--green)' : c.hhi < 2500 ? 'var(--amber)' : 'var(--red)';
       return '<div class="bar-group">' +
         '<div class="bar-wrapper">' +
