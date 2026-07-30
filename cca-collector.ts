@@ -107,6 +107,32 @@ async function sendWebhook(payload: Record<string, any>) {
   }
 }
 
+async function triggerAnalyzeWorkflow() {
+  const token = process.env.GITHUB_PAT
+  if (!token) return
+  try {
+    const res = await fetch(
+      'https://api.github.com/repos/monkrus/cca-monitor/actions/workflows/analyze.yml/dispatches',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({ ref: 'master' }),
+      },
+    )
+    if (res.ok || res.status === 204) {
+      console.log('  GitHub analyze workflow triggered')
+    } else {
+      console.error(`  GitHub dispatch failed: ${res.status} ${res.statusText}`)
+    }
+  } catch (err: any) {
+    console.error(`  GitHub dispatch error: ${err.message}`)
+  }
+}
+
 // ─── Telegram alerting ──────────────────────────────────────────────────────
 const TELEGRAM_TARGETS = {
   dm: process.env.TELEGRAM_CHAT_ID,                    // your personal DM
@@ -1646,6 +1672,9 @@ async function watchForNewAuctions() {
           const alertText = formatTelegramAlert(detection, result)
           await routeAlert('auction', alertText)
           console.log('  Telegram alert sent')
+
+          // Trigger CI analyze + dashboard deploy
+          await triggerAnalyzeWorkflow()
 
           // Start tracking bids on this new auction
           const tracked = await initTrackedAuction(auction as `0x${string}`, name, token)
