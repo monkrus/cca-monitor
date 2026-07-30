@@ -4,7 +4,7 @@
 
 On-chain data collector and live monitor for Uniswap's Continuous Clearing Auctions(CCAs). Tracks 15 auctions (4 real, 11 test) across Ethereum, Base, Arbitrum, and Unichain with 15,520 unique bidder addresses indexed. 92 automated checks guard dataset integrity.
 
-> **Telegram:** [@cca_auctions](https://t.me/cca_auctions) (free, 30-min delay) | [@cca_monitor_bot](https://t.me/cca_monitor_bot) (premium)
+>**Click:** [Dashboard](https://monkrus.github.io/cca-monitor/)    **Telegram:** [@cca_auctions](https://t.me/cca_auctions) (free, 30-min delay) | [@cca_monitor_bot](https://t.me/cca_monitor_bot) (premium)
 
 See [RUNBOOK.md](RUNBOOK.md) for operations. Dataset derived from public on-chain events; free to use with attribution.
 
