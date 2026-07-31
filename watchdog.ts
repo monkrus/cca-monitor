@@ -12,7 +12,11 @@ dotenv.config()
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID
 const CHECK_INTERVAL = 5 * 60_000 // 5 minutes
+const ALERT_COOLDOWN = 60 * 60_000 // 1 hour between repeated alerts
 const MONITORED = ['cca-watch', 'cca-bot', 'cca-intent']
+
+let lastAlertTime = 0
+let lastAlertMessage = ''
 
 async function sendAlert(text: string) {
   if (!BOT_TOKEN || !CHAT_ID) {
@@ -39,11 +43,16 @@ interface Pm2Process {
 function checkAndRestart() {
   let processes: Pm2Process[]
   try {
-    const raw = execSync('pm2 jlist', { encoding: 'utf-8', timeout: 15_000 })
+    const raw = execSync('pm2 jlist', { encoding: 'utf-8', timeout: 30_000 })
     processes = JSON.parse(raw)
   } catch (e) {
     console.error('[watchdog] Failed to read pm2 status:', e)
-    sendAlert('⚠️ <b>Watchdog:</b> Cannot read pm2 process list — pm2 may be down.')
+    const msg = 'pm2-read-fail'
+    if (msg !== lastAlertMessage || Date.now() - lastAlertTime > ALERT_COOLDOWN) {
+      sendAlert('⚠️ <b>Watchdog:</b> Cannot read pm2 process list — pm2 may be down.')
+      lastAlertTime = Date.now()
+      lastAlertMessage = msg
+    }
     return
   }
 
@@ -74,11 +83,15 @@ function checkAndRestart() {
     console.error('[watchdog] Restart failed:', e)
   }
 
-  sendAlert(
-    `⚠️ <b>CCA Watchdog</b>\n\n` +
-    `Processes down: <code>${problems}</code>\n\n` +
-    `Auto-restart triggered.`
-  )
+  if (problems !== lastAlertMessage || Date.now() - lastAlertTime > ALERT_COOLDOWN) {
+    sendAlert(
+      `⚠️ <b>CCA Watchdog</b>\n\n` +
+      `Processes down: <code>${problems}</code>\n\n` +
+      `Auto-restart triggered.`
+    )
+    lastAlertTime = Date.now()
+    lastAlertMessage = problems
+  }
 }
 
 // Initial check
