@@ -1471,10 +1471,16 @@ async function pollBids() {
       const scanTo = currentBlock < auction.endBlock ? currentBlock : auction.endBlock
       if (scanTo <= auction.lastScannedBlock) continue
 
-      const bidLogs = await client.getLogs({
+      const ALCHEMY_MAX_RANGE_BIDS = 9n
+      const fromBlock = auction.lastScannedBlock + 1n
+      const gap = scanTo - fromBlock
+      const useBlockscout = gap > ALCHEMY_MAX_RANGE_BIDS && PUBLIC_RPCS[auction.chain]
+      const logsClient = useBlockscout ? getClient(auction.chain, true) : client
+
+      const bidLogs = await logsClient.getLogs({
         address: auction.address,
         event: BID_EVENT,
-        fromBlock: auction.lastScannedBlock + 1n,
+        fromBlock,
         toBlock: scanTo,
       })
 
