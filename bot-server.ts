@@ -81,18 +81,20 @@ async function handleStart(chatId: number) {
     ``,
     `Know how every Uniswap CCA ends before the crowd does.`,
     ``,
-    `Premium subscribers get <b>auction-end intel</b>: oversubscription ratio, clearing-vs-floor %, bid count, and time remaining — at 24h and 1h before close. Plus instant deployment alerts and live bid tracking.`,
+    `<b>What premium subscribers see:</b>`,
+    `  Instant new-auction alerts (free gets 30-min delay)`,
+    `  Live bid tracking with whale alerts`,
+    `  Auction-end intel at 24h and 1h before close`,
+    `  Price movement alerts for graduated tokens`,
     ``,
     `<b>Free channel:</b> @cca_auctions`,
-    `Deployment alerts delayed 30 min. No auction-end intel.`,
+    `Deployment alerts delayed 30 min. No bid tracking or intel.`,
     ``,
-    `<b>Premium tiers:</b>`,
-    `  ${TIERS.pass.label} — ${TIERS.pass.stars} Stars / ${TIERS.pass.days} days`,
-    `  ${TIERS.monthly.label} — ${TIERS.monthly.stars} Stars / ${TIERS.monthly.days} days`,
-    `  ${TIERS.lifetime.label} — ${TIERS.lifetime.stars} Stars / forever`,
-    ``,
-    `/subscribe — Choose a plan`,
-    `/stats — CCA dataset stats (free)`,
+    `<b>Commands:</b>`,
+    `/auction — Current live auction status`,
+    `/stats — CCA dataset stats`,
+    `/sample — See a sample premium alert`,
+    `/subscribe — Choose a premium plan`,
     `/status — Check your subscription`,
     ...(ARTICLE_URL ? [``, `Full analysis: ${ARTICLE_URL}`] : []),
   ].join('\n'))
@@ -249,21 +251,139 @@ async function handleStats(chatId: number) {
     const chains = [...new Set(real.map((a: any) => a.chain))].length
     const totalBids = real.reduce((s: number, a: any) => s + (a.totalBids || 0), 0)
     const totalBidders = real.reduce((s: number, a: any) => s + (a.uniqueBidders || 0), 0)
+    const avgBidders = total > 0 ? Math.round(totalBidders / total) : 0
+    const gradRate = total > 0 ? Math.round((graduated / total) * 100) : 0
     await sendMessage(chatId, [
       `<b>CCA Dataset Stats</b>`,
       ``,
-      `Auctions tracked: ${total}`,
-      `Graduated: ${graduated}`,
+      `Auctions tracked: <b>${total}</b>`,
+      `Graduated: <b>${graduated}</b> (${gradRate}% success rate)`,
       `Chains: ${chains}`,
       `Total bids: ${totalBids.toLocaleString('en-US')}`,
-      `Unique bidders: ${totalBidders.toLocaleString('en-US')}`,
+      `Unique bidders: ${totalBidders.toLocaleString('en-US')} (avg ${avgBidders}/auction)`,
       ``,
       `<i>Updated live from on-chain data.</i>`,
+      ``,
+      `Premium subscribers get instant alerts, bid tracking, and auction-end intel.`,
+      `/subscribe — Choose a plan`,
       ...(ARTICLE_URL ? [``, `Full analysis: ${ARTICLE_URL}`] : []),
     ].join('\n'))
   } catch {
     await sendMessage(chatId, `Stats unavailable — run <code>npm run analyze</code> first.`)
   }
+}
+
+// ─── /auction command (free — live auction status) ───────────────────────────
+async function handleAuction(chatId: number) {
+  const parsed = readJsonSafe('data/results.json', { auctions: [] as any[] })
+  const allAuctions = parsed.auctions || parsed
+  const real = allAuctions.filter((a: any) => !a.isTest)
+
+  // Find active auctions (not graduated, endBlock in the future or recent)
+  const active = real.filter((a: any) => !a.graduated && a.totalBids !== undefined)
+  // Also find the most recent completed auction for context
+  const completed = real.filter((a: any) => a.graduated || a.totalBids > 0)
+
+  if (active.length === 0 && completed.length === 0) {
+    await sendMessage(chatId, [
+      `<b>No Active Auctions</b>`,
+      ``,
+      `There are no CCA auctions running right now.`,
+      `You'll be alerted when a new one launches.`,
+      ``,
+      `<b>Free channel:</b> @cca_auctions (30-min delay)`,
+      `<b>Instant alerts:</b> /subscribe`,
+    ].join('\n'))
+    return
+  }
+
+  const lines: string[] = []
+
+  if (active.length > 0) {
+    for (const a of active) {
+      const label = a.tokenSymbol || a.name
+      const chain = a.chain || '?'
+      lines.push(
+        `<b>${label}</b> (${chain})`,
+        ``,
+        `Status: ${a.totalBids > 0 ? 'Accepting bids' : 'Open — no bids yet'}`,
+        `Total bids: ${(a.totalBids || 0).toLocaleString('en-US')}`,
+        `Unique bidders: ${(a.uniqueBidders || 0).toLocaleString('en-US')}`,
+        `Duration: ${Math.round((a.durationHours || 0) / 24)} days`,
+      )
+      if (a.clearingPrice && a.clearingPrice !== '0.00000000') {
+        lines.push(`Clearing price: ${a.clearingPrice} ${a.currencySymbol || ''}`)
+      }
+      lines.push(``)
+    }
+    lines.push(
+      `<i>Premium subscribers see: whale alerts, bid velocity, and auction-end intel with clearing predictions.</i>`,
+      `/subscribe — Get the full picture`,
+    )
+  } else {
+    // No active, show latest completed
+    const latest = completed[completed.length - 1]
+    const label = latest.tokenSymbol || latest.name
+    lines.push(
+      `<b>No Active Auctions</b>`,
+      ``,
+      `Last completed: <b>${label}</b> (${latest.chain})`,
+      `Result: ${latest.graduated ? 'Graduated' : 'Did not graduate'}`,
+      `Final bids: ${(latest.totalBids || 0).toLocaleString('en-US')}`,
+      `Unique bidders: ${(latest.uniqueBidders || 0).toLocaleString('en-US')}`,
+      ``,
+      `You'll be alerted when a new auction launches.`,
+      `<b>Free:</b> @cca_auctions | <b>Instant:</b> /subscribe`,
+    )
+  }
+
+  await sendMessage(chatId, lines.join('\n'))
+}
+
+// ─── /sample command (free — sample premium alert) ───────────────────────────
+async function handleSample(chatId: number) {
+  const sampleAlert = [
+    `<b>Here's what premium alerts look like:</b>`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    `<b>New Auction Alert (instant):</b>`,
+    ``,
+    `  🚨 <b>NEW CCA DETECTED</b>`,
+    `  Token: EXAMPLE`,
+    `  Chain: Ethereum`,
+    `  Duration: 7 days`,
+    `  Floor price: 0.00005000 ETH`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    `<b>Whale Bid Alert:</b>`,
+    ``,
+    `  🐋 <b>Whale Bid — EXAMPLE</b>`,
+    `  Amount: 50.00 ETH`,
+    `  Bidder: 0x1a2b...3c4d`,
+    `  Total bids: 342`,
+    `  Bidders: 189`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    `<b>Auction-End Intel (24h before close):</b>`,
+    ``,
+    `  ⏳ <b>EXAMPLE — 24h Left</b>`,
+    `  Clearing: 0.00012 ETH (240% of floor)`,
+    `  Raised: 1,250.00 ETH`,
+    `  Bids: 892 from 456 bidders`,
+    `  Verdict: likely to graduate`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    `Free channel gets deployment alerts with a 30-min delay.`,
+    `Premium gets everything above — instantly.`,
+    ``,
+    `/subscribe — Start from ${TIERS.pass.stars} Stars`,
+  ].join('\n')
+
+  await sendMessage(chatId, sampleAlert)
 }
 
 // ─── Pre-checkout handler (required by Telegram) ────────────────────────────
@@ -352,6 +472,8 @@ async function poll() {
       else if (text === '/subscribe') await handleSubscribe(chatId, userId)
       else if (text === '/status') await handleStatus(chatId, userId)
       else if (text === '/stats') await handleStats(chatId)
+      else if (text === '/auction') await handleAuction(chatId)
+      else if (text === '/sample') await handleSample(chatId)
     }
   } catch (err: any) {
     console.error(`Poll error: ${err.message}`)
@@ -391,8 +513,10 @@ async function main() {
   await api('setMyCommands', {
     commands: [
       { command: 'start', description: 'Welcome & info' },
+      { command: 'auction', description: 'Live auction status' },
+      { command: 'stats', description: 'CCA dataset stats' },
+      { command: 'sample', description: 'See a sample premium alert' },
       { command: 'subscribe', description: 'Choose a premium plan' },
-      { command: 'stats', description: 'CCA dataset stats (free)' },
       { command: 'status', description: 'Check subscription status' },
     ],
   })
