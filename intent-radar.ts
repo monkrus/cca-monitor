@@ -128,7 +128,7 @@ async function pollFeeds() {
     try {
       const resp = await fetch(feedUrl, {
         headers: { 'User-Agent': 'CCA-Intent-Radar/1.0' },
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(30_000),
       })
       if (!resp.ok) {
         console.log(`  Feed ${feedUrl} returned ${resp.status}`)

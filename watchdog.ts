@@ -45,7 +45,12 @@ function checkAndRestart() {
   try {
     const raw = execSync('pm2 jlist', { encoding: 'utf-8', timeout: 30_000 })
     processes = JSON.parse(raw)
-  } catch (e) {
+  } catch (e: any) {
+    // ETIMEDOUT is transient on Windows under load — skip silently
+    if (e?.code === 'ETIMEDOUT') {
+      console.log('[watchdog] pm2 jlist timed out, will retry next cycle')
+      return
+    }
     console.error('[watchdog] Failed to read pm2 status:', e)
     const msg = 'pm2-read-fail'
     if (msg !== lastAlertMessage || Date.now() - lastAlertTime > ALERT_COOLDOWN) {
