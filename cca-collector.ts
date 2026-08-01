@@ -715,14 +715,14 @@ async function initTokenTracking() {
 
 // ─── Daily market summary ───────────────────────────────────────────────────
 const WATCH_STATE_FILE = 'data/watch-state.json'
-const watchState: { lastDailySummary: string; lastHeartbeat: string; lastWeeklyDigest: string } =
+const watchState: { lastDailySummary: string; lastHeartbeat: string; lastWeeklyDigest: string; lastStateCCA: string } =
   readJsonSafe(WATCH_STATE_FILE, {} as any)
 let lastDailySummary = watchState.lastDailySummary || ''
 let lastHeartbeat = watchState.lastHeartbeat || ''
 const lastSuccessfulPoll: Record<string, string> = {}
 
 function saveWatchState() {
-  writeJsonAtomic(WATCH_STATE_FILE, { lastDailySummary, lastHeartbeat, lastWeeklyDigest })
+  writeJsonAtomic(WATCH_STATE_FILE, { lastDailySummary, lastHeartbeat, lastWeeklyDigest, lastStateCCA })
 }
 
 async function sendDailySummary() {
@@ -780,9 +780,9 @@ async function sendDailySummary() {
 
   lines.push(``, `<i>Get instant alerts: @cca_monitor_bot → /subscribe</i>`)
 
-  await routeAlert('daily-summary', lines.join('\n'))
   lastDailySummary = dateKey
   saveWatchState()
+  await routeAlert('daily-summary', lines.join('\n'))
   console.log(`Daily summary sent (${dateKey})`)
 }
 
@@ -931,9 +931,9 @@ async function sendHeartbeat() {
     publicMembers ? `<b>Public channel members:</b> ${publicMembers.split(': ')[1]}` : '',
   ].filter(Boolean).join('\n')
 
-  await routeAlert('heartbeat', msg)
   lastHeartbeat = dateKey
   saveWatchState()
+  await routeAlert('heartbeat', msg)
   console.log(`Heartbeat sent (${dateKey})`)
 }
 
@@ -1024,14 +1024,14 @@ async function sendWeeklyDigest() {
     `<b>Intent radar:</b> ${intentMatches} total items tracked`,
   ].join('\n')
 
-  await routeAlert('weekly-digest', msg)
   lastWeeklyDigest = weekKey
   saveWatchState()
+  await routeAlert('weekly-digest', msg)
   console.log(`Weekly digest sent (${weekKey})`)
 }
 
 // ─── Weekly "State of CCA" public channel post (Wednesday 15 UTC) ────────────
-let lastStateCCA = ''
+let lastStateCCA = watchState.lastStateCCA || ''
 
 const DID_YOU_KNOW_POOL = [
   (real: any[]) => {
@@ -1111,8 +1111,9 @@ async function sendStateCCA(dryRun = false) {
     return
   }
 
-  await routeAlert('state-of-cca', lines)
   lastStateCCA = weekKey
+  saveWatchState()
+  await routeAlert('state-of-cca', lines)
   console.log(`State of CCA post sent (${weekKey})`)
 }
 
