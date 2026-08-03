@@ -92,6 +92,7 @@ async function handleStart(chatId: number) {
     ``,
     `<b>Commands:</b>`,
     `/auction — Current live auction status`,
+    `/bid — Bid placement helper (premium)`,
     `/stats — CCA dataset stats`,
     `/sample — See a sample premium alert`,
     `/subscribe — Choose a premium plan`,
@@ -386,6 +387,117 @@ async function handleSample(chatId: number) {
   await sendMessage(chatId, sampleAlert)
 }
 
+// ─── /bid command (premium — bid placement helper) ───────────────────────────
+async function handleBid(chatId: number, userId: number) {
+  const sub = isSubscribed(userId)
+  if (!sub) {
+    await sendMessage(chatId, [
+      `<b>Bid Placement Helper</b> (Premium)`,
+      ``,
+      `This tool analyzes historical CCA data to suggest optimal bid ranges for live auctions.`,
+      ``,
+      `What you get:`,
+      `  Conservative / moderate / aggressive ranges`,
+      `  Clearing/floor ratio analysis by auction type`,
+      `  Concentration metrics (HHI, top-5 share)`,
+      `  Sizing guidance based on bidder patterns`,
+      ``,
+      `<i>Available to premium subscribers only.</i>`,
+      `/subscribe — Unlock from ${TIERS.pass.stars} Stars`,
+    ].join('\n'))
+    return
+  }
+
+  const parsed = readJsonSafe('data/results.json', { auctions: [] as any[] })
+  const allAuctions = parsed.auctions || parsed
+  const real = allAuctions.filter((a: any) => !a.isTest && a.graduated)
+
+  // Parse clearing/floor ratios
+  const withRatios = real.map((a: any) => {
+    const m = (a.clearingVsFloor || '').match(/([\d.]+)%/)
+    return { ...a, ratio: m ? parseFloat(m[1]) : null }
+  }).filter((a: any) => a.ratio !== null)
+
+  if (withRatios.length === 0) {
+    await sendMessage(chatId, `No graduated auctions with clearing data yet.`)
+    return
+  }
+
+  const ratios = withRatios.map((a: any) => a.ratio as number).sort((a, b) => a - b)
+  const min = ratios[0]
+  const max = ratios[ratios.length - 1]
+  const median = ratios.length % 2 === 0
+    ? (ratios[ratios.length / 2 - 1] + ratios[ratios.length / 2]) / 2
+    : ratios[Math.floor(ratios.length / 2)]
+
+  const hookedRatios = withRatios.filter((a: any) => a.hasValidationHook).map((a: any) => a.ratio as number)
+  const openRatios = withRatios.filter((a: any) => !a.hasValidationHook).map((a: any) => a.ratio as number)
+  const hookedAvg = hookedRatios.length > 0 ? hookedRatios.reduce((s, r) => s + r, 0) / hookedRatios.length : null
+  const openAvg = openRatios.length > 0 ? openRatios.reduce((s, r) => s + r, 0) / openRatios.length : null
+
+  const conservative = min * 0.95
+  const aggressive = max * 1.1
+
+  // Concentration data
+  const withConc = withRatios.filter((a: any) => a.concentration)
+  let concLines: string[] = []
+  if (withConc.length > 0) {
+    concLines = [
+      ``,
+      `<b>Concentration:</b>`,
+      ...withConc.map((a: any) => {
+        const c = a.concentration
+        return `  ${a.name}: HHI=${c.hhi} | Top-5=${c.top5Pct}% | Late=${c.lateBidPct}%`
+      }),
+    ]
+  }
+
+  // Find active auctions for context
+  const active = allAuctions.filter((a: any) => !a.isTest && !a.graduated && a.totalBids !== undefined)
+  const activeLine = active.length > 0
+    ? `\n<b>Active now:</b> ${active.map((a: any) => a.tokenSymbol || a.name).join(', ')}`
+    : '\n<i>No active auctions right now.</i>'
+
+  await sendMessage(chatId, [
+    `<b>Bid Placement Helper</b>`,
+    ``,
+    `<b>Historical Clearing/Floor Ratios:</b>`,
+    ...withRatios.map((a: any) => {
+      const hook = a.hasValidationHook ? 'KYC' : 'Open'
+      return `  ${a.name}: <b>${a.ratio.toFixed(1)}%</b> (${hook}, ${a.currencySymbol})`
+    }),
+    ``,
+    `<b>Recommended Ranges</b> (% of floor price):`,
+    ``,
+    `  <b>Conservative</b> (max value):`,
+    `  ${conservative.toFixed(0)}–${min.toFixed(0)}% of floor`,
+    `  <i>Risk: may not fill if clearing is higher</i>`,
+    ``,
+    `  <b>Moderate</b> (balanced):`,
+    `  ${min.toFixed(0)}–${median.toFixed(0)}% of floor`,
+    `  <i>Based on historical median</i>`,
+    ``,
+    `  <b>Aggressive</b> (max fill chance):`,
+    `  ${median.toFixed(0)}–${aggressive.toFixed(0)}% of floor`,
+    `  <i>Covers full historical range + 10%</i>`,
+    ...(hookedAvg !== null && openAvg !== null ? [
+      ``,
+      `<b>By auction type:</b>`,
+      `  KYC/hooked avg: ${hookedAvg.toFixed(1)}% (${hookedRatios.length} auctions)`,
+      `  Open avg: ${openAvg.toFixed(1)}% (${openRatios.length} auctions)`,
+    ] : []),
+    ...concLines,
+    ``,
+    `<b>Tips:</b>`,
+    `  Place 2-3 bids at different price levels`,
+    `  CCA is uniform-price — all winners pay the same clearing price`,
+    `  Bidding higher only increases fill probability, not cost`,
+    activeLine,
+    ``,
+    `<i>Based on ${withRatios.length} graduated auctions. Past ratios don't predict future ones.</i>`,
+  ].join('\n'))
+}
+
 // ─── Pre-checkout handler (required by Telegram) ────────────────────────────
 async function handlePreCheckout(preCheckoutQueryId: string) {
   await api('answerPreCheckoutQuery', {
@@ -474,6 +586,7 @@ async function poll() {
       else if (text === '/stats') await handleStats(chatId)
       else if (text === '/auction') await handleAuction(chatId)
       else if (text === '/sample') await handleSample(chatId)
+      else if (text === '/bid') await handleBid(chatId, userId)
     }
   } catch (err: any) {
     console.error(`Poll error: ${err.message}`)
@@ -514,6 +627,7 @@ async function main() {
     commands: [
       { command: 'start', description: 'Welcome & info' },
       { command: 'auction', description: 'Live auction status' },
+      { command: 'bid', description: 'Bid placement helper (premium)' },
       { command: 'stats', description: 'CCA dataset stats' },
       { command: 'sample', description: 'See a sample premium alert' },
       { command: 'subscribe', description: 'Choose a premium plan' },
