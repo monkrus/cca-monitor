@@ -2,9 +2,13 @@ name = "cca-monitor-api"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
-# Deploy: npx wrangler deploy
-# Dev:    npx wrangler dev
-# Free tier: 100K requests/day
+# Deploy: cd api && npx wrangler deploy
+# Dev:    cd api && npx wrangler dev
+# Free tier: 100K requests/day (Cloudflare)
+
+# API keys for pro tier (set via wrangler secret):
+#   npx wrangler secret put API_KEYS
+#   Enter comma-separated keys: key1,key2,key3
 
 [triggers]
 crons = []
