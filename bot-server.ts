@@ -635,6 +635,17 @@ async function main() {
     ],
   })
 
+  // Set public channel description (idempotent)
+  const publicChannelId = process.env.TELEGRAM_PUBLIC_CHANNEL_ID
+  if (publicChannelId) {
+    try {
+      await api('setChatDescription', {
+        chat_id: publicChannelId,
+        description: 'Uniswap CCA auction alerts — new deployments, bid updates, whale bids, and auction results. Delayed 30 min. Get instant alerts + bid intel: @cca_monitor_bot',
+      })
+    } catch {}
+  }
+
   console.log('Bot is running. Listening for commands...\n')
 
   // Poll loop

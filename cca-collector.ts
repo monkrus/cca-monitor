@@ -144,7 +144,7 @@ const PUBLIC_DELAY_MS = 30 * 60 * 1000 // 30-minute delay for public channel
 // ─── Routing table (single source of truth for all alert routing) ───────────
 type AlertType = 'auction' | 'bid-update' | 'whale-bid' | 'end-intel' | 'auction-end'
   | 'daily-summary' | 'price-alert'
-  | 'heartbeat' | 'weekly-digest' | 'milestone' | 'state-of-cca'
+  | 'heartbeat' | 'weekly-digest' | 'milestone' | 'state-of-cca' | 'premium-teaser'
 
 interface RouteSpec {
   dm: boolean
@@ -165,6 +165,7 @@ export const ROUTE_TABLE: Record<AlertType, RouteSpec> = {
   'weekly-digest':  { dm: true,  premium: false, publicDelayed: false, publicImmediate: false },
   'milestone':      { dm: false, premium: false, publicDelayed: false, publicImmediate: true  },
   'state-of-cca':   { dm: false, premium: false, publicDelayed: false, publicImmediate: true  },
+  'premium-teaser': { dm: false, premium: false, publicDelayed: false, publicImmediate: true  },
 }
 
 // ─── Persistent public alert queue ──────────────────────────────────────────
@@ -211,7 +212,7 @@ async function flushPendingAlerts() {
       const queuedTime = alert.queuedAt ? new Date(alert.queuedAt).getTime() : 0
       const actualDelayMs = queuedTime ? now - queuedTime : 0
       const delayStr = formatDelay(actualDelayMs)
-      const footerText = `\n\n⏱ <i>Delayed ${delayStr}. Get instant alerts:</i> <b>@cca_monitor_bot</b>`
+      const footerText = `\n\n⏱ <i>Delayed ${delayStr}. Premium gets this instantly + whale alerts + bid intel:</i> <b>@cca_monitor_bot</b> → /subscribe`
       await sendTelegramTo(publicId, alert.text + footerText)
     }
     savePendingAlerts(remaining)
@@ -715,14 +716,14 @@ async function initTokenTracking() {
 
 // ─── Daily market summary ───────────────────────────────────────────────────
 const WATCH_STATE_FILE = 'data/watch-state.json'
-const watchState: { lastDailySummary: string; lastHeartbeat: string; lastWeeklyDigest: string; lastStateCCA: string } =
+const watchState: { lastDailySummary: string; lastHeartbeat: string; lastWeeklyDigest: string; lastStateCCA: string; lastPremiumTeaser: string } =
   readJsonSafe(WATCH_STATE_FILE, {} as any)
 let lastDailySummary = watchState.lastDailySummary || ''
 let lastHeartbeat = watchState.lastHeartbeat || ''
 const lastSuccessfulPoll: Record<string, string> = {}
 
 function saveWatchState() {
-  writeJsonAtomic(WATCH_STATE_FILE, { lastDailySummary, lastHeartbeat, lastWeeklyDigest, lastStateCCA })
+  writeJsonAtomic(WATCH_STATE_FILE, { lastDailySummary, lastHeartbeat, lastWeeklyDigest, lastStateCCA, lastPremiumTeaser })
 }
 
 async function sendDailySummary() {
@@ -1115,6 +1116,58 @@ async function sendStateCCA(dryRun = false) {
   saveWatchState()
   await routeAlert('state-of-cca', lines)
   console.log(`State of CCA post sent (${weekKey})`)
+}
+
+// ─── Friday premium teaser (public channel) ─────────────────────────────────
+let lastPremiumTeaser = watchState.lastPremiumTeaser || ''
+
+const PREMIUM_TEASERS = [
+  () => [
+    `This week premium subscribers received:`,
+    `  Instant new-auction alerts (you got them 30 min later)`,
+    `  Whale bid tracking with wallet addresses`,
+    `  Auction-end intel: clearing predictions at 24h and 1h`,
+  ],
+  () => [
+    `What premium saw this week:`,
+    `  Live bid counts updating every 60 seconds`,
+    `  Whale alerts when large positions enter`,
+    `  /bid command: optimal price ranges based on historical data`,
+  ],
+  () => [
+    `Premium-only features you're missing:`,
+    `  Bid placement helper with concentration analysis`,
+    `  HHI, top-5 share, and late-bid % per auction`,
+    `  Price alerts for graduated tokens`,
+  ],
+]
+
+async function sendPremiumTeaser() {
+  const now = new Date()
+  if (now.getUTCDay() !== 5) return // Friday only
+  if (now.getUTCHours() < 16) return
+  const weekKey = now.toISOString().slice(0, 10)
+  if (weekKey === lastPremiumTeaser) return
+
+  const publicId = TELEGRAM_TARGETS.public
+  if (!publicId) return
+
+  const weekNum = Math.floor(Date.now() / (7 * 86400000))
+  const teaserFn = PREMIUM_TEASERS[weekNum % PREMIUM_TEASERS.length]
+  const teaserLines = teaserFn()
+
+  const lines = [
+    `🔒 <b>Premium Recap</b>`,
+    ``,
+    ...teaserLines,
+    ``,
+    `Start from 100 Stars — @cca_monitor_bot → /subscribe`,
+  ]
+
+  lastPremiumTeaser = weekKey
+  saveWatchState()
+  await routeAlert('premium-teaser', lines.join('\n'))
+  console.log(`Premium teaser sent (${weekKey})`)
 }
 
 // ─── Milestone posts ─────────────────────────────────────────────────────────
@@ -1709,7 +1762,7 @@ async function watchForNewAuctions() {
   const endIntelInterval = setInterval(checkEndAlerts, 5 * 60_000) // check every 5 min
   const alertFlushInterval = setInterval(flushPendingAlerts, 60_000)
   const dailyInterval = setInterval(async () => {
-    for (const fn of [sendDailySummary, sendHeartbeat, sendWeeklyDigest, sendStateCCA, checkMilestones]) {
+    for (const fn of [sendDailySummary, sendHeartbeat, sendWeeklyDigest, sendStateCCA, sendPremiumTeaser, checkMilestones]) {
       try { await fn() } catch (e) { console.error(`  Scheduled task ${fn.name} error:`, (e as Error).message) }
     }
   }, 60_000)
