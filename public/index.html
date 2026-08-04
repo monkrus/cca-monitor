@@ -182,6 +182,18 @@
   }
   .cta-btn:hover { background: #4f46e5; text-decoration: none; }
 
+  .insights-panel {
+    background: linear-gradient(135deg, rgba(16,185,129,0.08), rgba(99,102,241,0.08));
+    border: 1px solid rgba(16,185,129,0.2); border-radius: 8px;
+    padding: 20px 24px; margin: 0 32px 24px;
+  }
+  .insights-title { font-size: 14px; font-weight: 700; color: var(--green); margin-bottom: 14px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px; }
+  .insight { text-align: center; }
+  .insight-val { display: block; font-size: 22px; font-weight: 700; color: var(--text); }
+  .insight-label { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .insights-footer { margin-top: 14px; font-size: 12px; color: var(--muted); border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px; }
+
   .empty-state { text-align: center; padding: 80px 32px; color: var(--muted); }
   .empty-state h2 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
 
@@ -198,6 +210,9 @@
     .bar-chart { gap: 6px; height: 120px; }
     .bar-label { font-size: 9px; }
     .cta-bar { margin: 0 16px 16px; padding: 12px 16px; flex-direction: column; text-align: center; }
+    .insights-panel { margin: 0 16px 16px; padding: 14px 16px; }
+    .insights-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .insight-val { font-size: 18px; }
     .price-row { padding: 0 16px 16px; }
     .price-card { min-width: 0; flex-basis: calc(50% - 8px); }
     .filter-bar { padding: 0 16px 12px; }
@@ -234,6 +249,8 @@
   <a href="https://t.me/cca_auctions" class="cta-btn" target="_blank">Free Channel</a>
   <a href="https://t.me/cca_monitor_bot" class="cta-btn" target="_blank" style="background:#7c3aed">Premium Bot</a>
 </div>
+
+<div class="bidder-insights" id="bidderInsights"></div>
 
 <div class="price-row" id="priceRow"></div>
 
@@ -374,6 +391,7 @@ function render(data) {
   }).join('');
   document.getElementById('stats').innerHTML = statsHtml;
 
+  renderBidderInsights(data);
   renderPriceRow(data);
   renderCharts(data);
   renderTable(data);
@@ -387,6 +405,33 @@ function render(data) {
       renderTable(allData);
     });
   });
+}
+
+function renderBidderInsights(data) {
+  var bi = data.summary && data.summary.bidderInsights;
+  if (!bi || !bi.totalUnique) { document.getElementById('bidderInsights').innerHTML = ''; return; }
+  var real = data.auctions.filter(function(a) { return !a.isTest; });
+  var totalBids = real.reduce(function(s, a) { return s + (a.totalBids || 0); }, 0);
+  var avgBidsPerBidder = bi.totalUnique > 0 ? (totalBids / bi.totalUnique).toFixed(1) : '?';
+
+  // Concentration averages
+  var withConc = real.filter(function(a) { return a.concentration && a.concentration.hhi; });
+  var avgHhi = withConc.length > 0 ? Math.round(withConc.reduce(function(s, a) { return s + a.concentration.hhi; }, 0) / withConc.length) : null;
+  var avgTop5 = withConc.length > 0 ? (withConc.reduce(function(s, a) { return s + a.concentration.top5Pct; }, 0) / withConc.length).toFixed(1) : null;
+
+  var html = '<div class="insights-panel">' +
+    '<div class="insights-title">Bidder Intelligence</div>' +
+    '<div class="insights-grid">' +
+    '<div class="insight"><span class="insight-val">' + bi.totalUnique.toLocaleString() + '</span><span class="insight-label">Unique Wallets</span></div>' +
+    '<div class="insight"><span class="insight-val">' + totalBids.toLocaleString() + '</span><span class="insight-label">Total Bids</span></div>' +
+    '<div class="insight"><span class="insight-val">' + avgBidsPerBidder + '</span><span class="insight-label">Avg Bids/Bidder</span></div>' +
+    '<div class="insight"><span class="insight-val">' + bi.repeatBidders + '</span><span class="insight-label">Repeat Bidders</span></div>' +
+    (avgHhi ? '<div class="insight"><span class="insight-val">' + avgHhi + '</span><span class="insight-label">Avg HHI</span></div>' : '') +
+    (avgTop5 ? '<div class="insight"><span class="insight-val">' + avgTop5 + '%</span><span class="insight-label">Avg Top-5 Share</span></div>' : '') +
+    '</div>' +
+    '<div class="insights-footer">Cross-auction bidder data from ' + real.length + ' real CCA auctions. Deep-dive any wallet: <a href="https://t.me/cca_monitor_bot" target="_blank">@cca_monitor_bot</a> → /profile</div>' +
+    '</div>';
+  document.getElementById('bidderInsights').innerHTML = html;
 }
 
 function renderPriceRow(data) {

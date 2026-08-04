@@ -92,7 +92,9 @@ async function handleStart(chatId: number) {
     ``,
     `<b>Commands:</b>`,
     `/auction — Current live auction status`,
+    `/leaderboard — Top CCA bidders`,
     `/bid — Bid placement helper (premium)`,
+    `/profile — Wallet CCA history (premium)`,
     `/stats — CCA dataset stats`,
     `/sample — See a sample premium alert`,
     `/subscribe — Choose a premium plan`,
@@ -387,6 +389,123 @@ async function handleSample(chatId: number) {
   await sendMessage(chatId, sampleAlert)
 }
 
+// ─── /leaderboard command (free teaser + premium full) ───────────────────────
+async function handleLeaderboard(chatId: number, userId: number) {
+  const bi = readJsonSafe<Array<{ address: string; auctionCount: number; auctions: string[] }>>('data/bidder-index.json', [])
+  if (bi.length === 0) {
+    await sendMessage(chatId, `Bidder index not available yet.`)
+    return
+  }
+
+  const total = bi.length
+  const multiAuction = bi.filter(b => b.auctionCount > 1).length
+  const top5 = bi.slice(0, 5)
+
+  const sub = isSubscribed(userId)
+
+  const lines = [
+    `<b>CCA Bidder Leaderboard</b>`,
+    ``,
+    `Total unique bidders: <b>${total.toLocaleString('en-US')}</b>`,
+    `Multi-auction bidders: <b>${multiAuction}</b>`,
+    ``,
+    `<b>Top repeat bidders:</b>`,
+    ...top5.map((b, i) => {
+      const addr = sub ? `<code>${b.address}</code>` : `<code>${b.address.slice(0, 6)}...${b.address.slice(-4)}</code>`
+      return `  ${i + 1}. ${addr}\n     ${b.auctionCount} auctions: ${b.auctions.join(', ')}`
+    }),
+  ]
+
+  if (!sub) {
+    lines.push(
+      ``,
+      `<i>Premium shows full addresses + /profile for any wallet.</i>`,
+      `/subscribe — Unlock from ${TIERS.pass.stars} Stars`,
+    )
+  } else {
+    lines.push(
+      ``,
+      `Use /profile <code>0x...</code> to deep-dive any bidder.`,
+    )
+  }
+
+  await sendMessage(chatId, lines.join('\n'))
+}
+
+// ─── /profile command (premium — wallet CCA history) ─────────────────────────
+async function handleProfile(chatId: number, userId: number, addressArg?: string) {
+  const sub = isSubscribed(userId)
+  if (!sub) {
+    await sendMessage(chatId, [
+      `<b>Bidder Profile</b> (Premium)`,
+      ``,
+      `Look up any wallet's CCA bidding history across all auctions.`,
+      ``,
+      `What you get:`,
+      `  Auctions participated in`,
+      `  Bid count and total committed per auction`,
+      `  Entry/exit timing (early vs late bidder)`,
+      `  Position relative to clearing price`,
+      ``,
+      `Usage: <code>/profile 0x1234...</code>`,
+      ``,
+      `<i>Available to premium subscribers only.</i>`,
+      `/subscribe — Unlock from ${TIERS.pass.stars} Stars`,
+    ].join('\n'))
+    return
+  }
+
+  const bi = readJsonSafe<Array<{ address: string; auctionCount: number; auctions: string[] }>>('data/bidder-index.json', [])
+  if (bi.length === 0) {
+    await sendMessage(chatId, `Bidder index not available yet.`)
+    return
+  }
+
+  let target = addressArg?.toLowerCase()
+  if (!target) {
+    // Default to top bidder
+    target = bi[0]?.address
+    if (!target) { await sendMessage(chatId, `No bidders found.`); return }
+  }
+
+  const entry = bi.find(e => e.address === target)
+  if (!entry) {
+    await sendMessage(chatId, `Address <code>${target}</code> not found in bidder index (${bi.length.toLocaleString('en-US')} wallets indexed).`)
+    return
+  }
+
+  // Build profile from results.json (no RPC calls — fast)
+  const parsed = readJsonSafe('data/results.json', { auctions: [] as any[] })
+  const allAuctions = parsed.auctions || parsed
+  const real = allAuctions.filter((a: any) => !a.isTest)
+
+  const auctionLines: string[] = []
+  for (const name of entry.auctions) {
+    const a = real.find((x: any) => x.name === name)
+    if (!a) continue
+    const status = a.graduated ? 'Graduated' : 'Failed'
+    const cvf = a.clearingVsFloor || '?'
+    auctionLines.push(`  <b>${name}</b> (${a.chain}) — ${status}, ${cvf}`)
+  }
+
+  // Rank
+  const rank = bi.findIndex(e => e.address === target) + 1
+  const percentile = ((1 - rank / bi.length) * 100).toFixed(1)
+
+  await sendMessage(chatId, [
+    `<b>Bidder Profile</b>`,
+    ``,
+    `<b>Address:</b> <code>${target}</code>`,
+    `<b>Auctions:</b> ${entry.auctionCount} of ${real.length} real auctions`,
+    `<b>Rank:</b> #${rank} of ${bi.length.toLocaleString('en-US')} (top ${percentile}%)`,
+    ``,
+    `<b>Auction history:</b>`,
+    ...auctionLines,
+    ``,
+    `<i>Full on-chain bid analysis (amounts, timing, fill estimate) available via CLI: npm run profile ${target}</i>`,
+  ].join('\n'))
+}
+
 // ─── /bid command (premium — bid placement helper) ───────────────────────────
 async function handleBid(chatId: number, userId: number) {
   const sub = isSubscribed(userId)
@@ -587,6 +706,8 @@ async function poll() {
       else if (text === '/auction') await handleAuction(chatId)
       else if (text === '/sample') await handleSample(chatId)
       else if (text === '/bid') await handleBid(chatId, userId)
+      else if (text === '/leaderboard') await handleLeaderboard(chatId, userId)
+      else if (text?.startsWith('/profile')) await handleProfile(chatId, userId, text.split(/\s+/)[1])
     }
   } catch (err: any) {
     console.error(`Poll error: ${err.message}`)
@@ -627,7 +748,9 @@ async function main() {
     commands: [
       { command: 'start', description: 'Welcome & info' },
       { command: 'auction', description: 'Live auction status' },
+      { command: 'leaderboard', description: 'Top CCA bidders' },
       { command: 'bid', description: 'Bid placement helper (premium)' },
+      { command: 'profile', description: 'Wallet CCA history (premium)' },
       { command: 'stats', description: 'CCA dataset stats' },
       { command: 'sample', description: 'See a sample premium alert' },
       { command: 'subscribe', description: 'Choose a premium plan' },
