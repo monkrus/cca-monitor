@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml)
 
-On-chain data collector and live monitor for Uniswap's Continuous Clearing Auctions(CCAs). Tracks 15 auctions (4 real, 11 test) across Ethereum, Base, Arbitrum, and Unichain with 15,520 unique bidder addresses indexed. 92 automated checks guard dataset integrity.
+On-chain data collector and live monitor for Uniswap's Continuous Clearing Auctions (CCAs). Tracks 16 auctions (5 real, 11 test) across Ethereum, Base, Arbitrum, and Unichain with 15,520 unique bidder addresses indexed. 94 automated checks guard dataset integrity.
 
 >**Click:** [Dashboard](https://monkrus.github.io/cca-monitor/)    **Telegram:** [@cca_auctions](https://t.me/cca_auctions) (free, 30-min delay) | [@cca_monitor_bot](https://t.me/cca_monitor_bot) (premium)
 
@@ -69,21 +69,40 @@ Each auction record includes:
 
 ## API
 
-A Cloudflare Worker serves the dataset as a REST API (free tier: 100K requests/day).
+Live REST API at **https://cca-monitor-api.sergeigodev.workers.dev** (Cloudflare Workers, free tier: 100K requests/day).
 
-```bash
-cd api && npx wrangler deploy   # deploy to Cloudflare
-cd api && npx wrangler dev      # local dev server
-```
+### Free tier (no key required)
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/v1/auctions` | All auctions (query: `?chain=mainnet&status=graduated&hook=true&q=AZTEC&test=true`) |
+| `GET /api/v1/auctions` | Auction data (filters: `?chain=mainnet&status=graduated&hook=true&q=AZTEC&test=true`) |
 | `GET /api/v1/auctions/:name` | Single auction by name or symbol |
+| `GET /api/v1/summary` | Summary stats |
+
+Rate limit: 30 requests/minute. Basic fields only.
+
+### Pro tier (requires `X-API-Key` header)
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/auctions` | Full auction data with concentration metrics |
+| `GET /api/v1/auctions/:name` | Full single auction |
 | `GET /api/v1/summary` | Summary stats + bidder insights |
 | `GET /api/v1/overlap` | Bidder overlap matrix |
+| `GET /api/v1/bidders` | Bidder index (15,520 wallets) |
+| `GET /api/v1/concentration` | HHI + top-5 concentration for all auctions |
+
+Rate limit: 300 requests/minute. For API access, DM [@monkrus](https://t.me/monkrus) on Telegram or X.
+
+First 5 keys free for 30 days — try it out.
 
 CORS enabled. Responses cached 5 minutes.
+
+```bash
+# Self-host
+cd api && npx wrangler deploy   # deploy to Cloudflare
+cd api && npx wrangler dev      # local dev server
+```
 
 ## Webhook Alerts
 
@@ -97,6 +116,7 @@ Set `WEBHOOK_URL` in `.env` to receive JSON POST notifications when new auctions
 | STRATO | Mainnet | Graduated | 575 | 291 | 407% | 804 ETH | No |
 | wOCT | Mainnet | Graduated | 1,867 | 812 | n/a | 1,177 ETH | No |
 | CAP | Mainnet | Graduated | 1,002 | 416 | 142% | 3.84M USDC | Yes (KYC) |
+| AKITA | Base | Failed | — | — | — | — | No |
 | 11 test auctions | Base | Failed | — | — | — | — | — |
 
 wOCT's floor price decodes to near-zero (Q96 value `4294967300` = ~5.4e-20), making the clearing/floor ratio astronomically large and meaningless. The auction itself graduated normally with a clearing price of 0.00001236 ETH and 1,177 ETH raised.
@@ -124,12 +144,12 @@ wOCT's floor price decodes to near-zero (Q96 value `4294967300` = ~5.4e-20), mak
 
 ## Dataset Insights
 
-Computed by the `analyze` summary across all 4 real auctions:
+Computed by the `analyze` summary across all 5 real auctions:
 
 - **15,520** unique bidder addresses
 - **86** addresses bid in 2+ auctions (0.55% recurrence rate)
 - Repeat bidders participate in hooked (KYC) auctions **62.4%** of the time vs **93.3%** for single-auction bidders — experienced bidders are more willing to enter open auctions (measured per auction-participation, not per unique address: 86 repeat addresses generate 113 hooked-auction entries)
-- All 4 real auctions graduated successfully
+- 4 of 5 real auctions graduated successfully (AKITA failed)
 
 ## Architecture
 
