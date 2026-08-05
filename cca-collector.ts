@@ -1479,6 +1479,57 @@ async function checkEndAlerts() {
   if (changed) saveEndAlerts(sent)
 }
 
+// Retry helper for 429/network errors — tries alternate public RPCs on failure
+async function retryOn429<T>(
+  fnOrChain: (() => Promise<T>) | string,
+  labelOrMakeFn: string | ((client: ReturnType<typeof getClient>) => Promise<T>),
+  makeFnOrRetries?: ((client: ReturnType<typeof getClient>) => Promise<T>) | number,
+): Promise<T> {
+  // Overload: retryOn429(fn, label) — simple retry with backoff
+  // Overload: retryOn429(chain, label, (client) => ...) — try each public RPC
+  if (typeof fnOrChain === 'function') {
+    const fn = fnOrChain as () => Promise<T>
+    const label = labelOrMakeFn as string
+    const retries = (makeFnOrRetries as number) || 2
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try { return await fn() } catch (err: any) {
+        const msg = String(err.details || err.message || err)
+        if (/429|Too Many Requests|rate.?limit/i.test(msg) && attempt < retries) {
+          const delay = (attempt + 1) * 5000
+          console.log(`  ${label}: 429 rate limited, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${retries})...`)
+          await new Promise(r => setTimeout(r, delay))
+          continue
+        }
+        throw err
+      }
+    }
+    throw new Error('unreachable')
+  }
+
+  // Chain-aware: try each public RPC URL in order
+  const chain = fnOrChain
+  const label = labelOrMakeFn as string
+  const makeFn = makeFnOrRetries as (client: ReturnType<typeof getClient>) => Promise<T>
+  const urls = PUBLIC_RPCS[chain] || []
+  let lastErr: any
+  for (let i = 0; i < Math.max(urls.length, 1); i++) {
+    try {
+      const client = getClient(chain, true, i)
+      return await makeFn(client)
+    } catch (err: any) {
+      lastErr = err
+      const msg = String(err.details || err.message || err)
+      if (/429|Too Many Requests|rate.?limit/i.test(msg) && i + 1 < urls.length) {
+        console.log(`  ${label}: 429 on RPC #${i}, trying next...`)
+        await new Promise(r => setTimeout(r, 2000))
+        continue
+      }
+      throw err
+    }
+  }
+  throw lastErr
+}
+
 async function pollBids() {
   for (const auction of trackedAuctions) {
     try {
@@ -1521,22 +1572,34 @@ async function pollBids() {
         continue
       }
 
-      // Scan new bid events
-      const scanTo = currentBlock < auction.endBlock ? currentBlock : auction.endBlock
+      // Scan new bid events (cap at 9000 blocks per cycle to stay under RPC limits)
+      const MAX_BID_SCAN = 9000n
+      let scanTo = currentBlock < auction.endBlock ? currentBlock : auction.endBlock
       if (scanTo <= auction.lastScannedBlock) continue
 
-      const ALCHEMY_MAX_RANGE_BIDS = 9n
       const fromBlock = auction.lastScannedBlock + 1n
+      if (scanTo - fromBlock > MAX_BID_SCAN) {
+        scanTo = fromBlock + MAX_BID_SCAN
+        console.log(`  ${auction.tokenSymbol || '?'}: bid scan capped at ${MAX_BID_SCAN} blocks, catching up...`)
+      }
       const gap = scanTo - fromBlock
-      const useBlockscout = gap > ALCHEMY_MAX_RANGE_BIDS && PUBLIC_RPCS[auction.chain]
-      const logsClient = useBlockscout ? getClient(auction.chain, true) : client
+      const ALCHEMY_MAX_RANGE_BIDS = 9n
+      const usePublicRpc = gap > ALCHEMY_MAX_RANGE_BIDS && PUBLIC_RPCS[auction.chain]
+      const bidLabel = auction.tokenSymbol || auction.address.slice(0, 10)
 
-      const bidLogs = await logsClient.getLogs({
-        address: auction.address,
-        event: BID_EVENT,
-        fromBlock,
-        toBlock: scanTo,
-      })
+      const bidLogs = usePublicRpc
+        ? await retryOn429(auction.chain, `${bidLabel} bids`, (c) => c.getLogs({
+            address: auction.address,
+            event: BID_EVENT,
+            fromBlock,
+            toBlock: scanTo,
+          }))
+        : await client.getLogs({
+            address: auction.address,
+            event: BID_EVENT,
+            fromBlock,
+            toBlock: scanTo,
+          })
 
       for (const log of bidLogs) {
         const { owner, amount } = log.args as any
@@ -1670,8 +1733,8 @@ async function watchForNewAuctions() {
         const gapSecs = Number(gap) * chainCfg.secsPerBlock
         const ALCHEMY_MAX_RANGE = 9n
 
-        // If gap represents >10 min of blocks, skip ahead (truly stale — not worth scanning)
-        if (gapSecs > 600) {
+        // If gap represents >30 min of blocks, skip ahead (truly stale — not worth scanning)
+        if (gapSecs > 1800) {
           console.log(`  ${name}: gap of ${gap} blocks (~${Math.round(gapSecs)}s) too stale, skipping ahead`)
           lastBlock[name] = currentBlock
           lastSuccessfulPoll[name] = new Date().toISOString()
@@ -1679,18 +1742,29 @@ async function watchForNewAuctions() {
           continue
         }
 
-        // Use Blockscout (no range limit) when gap exceeds Alchemy's 9-block limit
-        const useBlockscout = gap > ALCHEMY_MAX_RANGE && PUBLIC_RPCS[name]
-        const logsClient = useBlockscout ? getClient(name, true) : client
+        // Use public RPC when gap exceeds Alchemy's 9-block limit
+        const usePublicRpc = gap > ALCHEMY_MAX_RANGE && PUBLIC_RPCS[name]
+        const fromB = lastBlock[name] + 1n
+        const toB = currentBlock
 
-        const logs = (await Promise.all(FACTORY_ADDRESSES.map(addr =>
-          logsClient.getLogs({
-            address: addr as `0x${string}`,
-            event: FACTORY_ABI[0],
-            fromBlock: lastBlock[name] + 1n,
-            toBlock: currentBlock,
-          })
-        ))).flat()
+        // Serialize factory lookups to avoid hammering public RPCs
+        const logs: any[] = []
+        for (const addr of FACTORY_ADDRESSES) {
+          const result = usePublicRpc
+            ? await retryOn429(name, `${name} factory`, (c) => c.getLogs({
+                address: addr as `0x${string}`,
+                event: FACTORY_ABI[0],
+                fromBlock: fromB,
+                toBlock: toB,
+              }))
+            : await client.getLogs({
+                address: addr as `0x${string}`,
+                event: FACTORY_ABI[0],
+                fromBlock: fromB,
+                toBlock: toB,
+              })
+          logs.push(...result)
+        }
 
         for (const log of logs) {
           const { auction, token } = log.args as any
@@ -1747,6 +1821,9 @@ async function watchForNewAuctions() {
         lastBlock[name] = currentBlock
         lastSuccessfulPoll[name] = new Date().toISOString()
         saveLastBlocks()
+
+        // Small delay between chains to avoid public RPC rate limits
+        if (usePublicRpc) await new Promise(r => setTimeout(r, 1500))
       } catch (err: any) {
         console.error(`  Poll error (${name}): ${err.message}`)
       }

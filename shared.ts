@@ -26,16 +26,20 @@ export const CHAINS: Record<string, { chain: any, secsPerBlock: number, explorer
 }
 
 // ─── RPC clients ─────────────────────────────────────────────────────────────
-export const PUBLIC_RPCS: Record<string, string> = {
-  mainnet:  'https://eth.blockscout.com/api/eth-rpc',
-  base:     'https://base.blockscout.com/api/eth-rpc',
-  arbitrum: 'https://arbitrum.blockscout.com/api/eth-rpc',
+export const PUBLIC_RPCS: Record<string, string[]> = {
+  mainnet:  ['https://eth.blockscout.com/api/eth-rpc'],
+  base:     ['https://mainnet.base.org', 'https://base.blockscout.com/api/eth-rpc'],
+  arbitrum: ['https://arbitrum.blockscout.com/api/eth-rpc'],
 }
 
-export function getClient(chainName: string, usePublicRpc = false) {
-  const rpcUrl = usePublicRpc
-    ? PUBLIC_RPCS[chainName]
-    : process.env[`RPC_URL_${chainName.toUpperCase()}`]
+export function getClient(chainName: string, usePublicRpc = false, rpcIndex = 0) {
+  let rpcUrl: string | undefined
+  if (usePublicRpc) {
+    const urls = PUBLIC_RPCS[chainName] || []
+    rpcUrl = urls[rpcIndex] || urls[0]
+  } else {
+    rpcUrl = process.env[`RPC_URL_${chainName.toUpperCase()}`]
+  }
   const chainCfg = CHAINS[chainName]
   if (!chainCfg) throw new Error(`Unknown chain: ${chainName}`)
   return createPublicClient({
