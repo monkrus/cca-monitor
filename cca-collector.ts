@@ -234,6 +234,99 @@ async function sendTelegramTo(chatId: string, text: string) {
   }
 }
 
+// ─── Multi-channel alerting (webhook + email) ────────────────────────────────
+function stripHtml(html: string): string {
+  return html
+    .replace(/<b>(.*?)<\/b>/g, '*$1*')
+    .replace(/<i>(.*?)<\/i>/g, '_$1_')
+    .replace(/<code>(.*?)<\/code>/g, '`$1`')
+    .replace(/<a href="(.*?)"[^>]*>(.*?)<\/a>/g, '$2 ($1)')
+    .replace(/<br\s*\/?>/g, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+}
+
+async function sendAlertWebhooks(alertType: string, text: string) {
+  const urls = (process.env.ALERT_WEBHOOK_URLS || '').split(',').map(u => u.trim()).filter(Boolean)
+  if (urls.length === 0) return
+
+  const plain = stripHtml(text)
+
+  for (const url of urls) {
+    try {
+      let body: string
+
+      if (/discord\.com\/api\/webhooks\//i.test(url)) {
+        const color = alertType === 'auction' ? 0x6366f1 : alertType.includes('whale') ? 0xf59e0b : 0x22c55e
+        body = JSON.stringify({
+          embeds: [{
+            title: `CCA ${alertType.replace(/-/g, ' ').toUpperCase()}`,
+            description: plain.slice(0, 4096),
+            color,
+            footer: { text: 'CCA Monitor' },
+            timestamp: new Date().toISOString(),
+          }],
+        })
+      } else if (/hooks\.slack\.com\//i.test(url)) {
+        body = JSON.stringify({
+          blocks: [
+            { type: 'header', text: { type: 'plain_text', text: `CCA ${alertType.replace(/-/g, ' ').toUpperCase()}` } },
+            { type: 'section', text: { type: 'mrkdwn', text: plain.slice(0, 3000) } },
+          ],
+        })
+      } else {
+        body = JSON.stringify({
+          type: alertType,
+          text: plain,
+          html: text,
+          timestamp: new Date().toISOString(),
+          source: 'cca-monitor',
+        })
+      }
+
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      })
+    } catch (err: any) {
+      console.error(`Alert webhook (${alertType}) failed: ${err.message}`)
+    }
+  }
+}
+
+async function sendAlertEmail(alertType: string, text: string) {
+  const apiKey = process.env.SENDGRID_API_KEY
+  const to = process.env.ALERT_EMAIL
+  if (!apiKey || !to) return
+
+  const mode = process.env.ALERT_EMAIL_MODE || 'digest'
+  if (mode === 'digest' && alertType !== 'daily-summary' && alertType !== 'weekly-digest') return
+
+  const from = process.env.ALERT_EMAIL_FROM || 'alerts@cca-monitor.dev'
+  const subject = `CCA Monitor: ${alertType.replace(/-/g, ' ')}`
+  const plain = stripHtml(text)
+  const recipients = to.split(',').map(e => e.trim()).filter(Boolean)
+
+  try {
+    await fetch('https://api.sendgrid.net/v3/mail/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        personalizations: [{ to: recipients.map(email => ({ email })) }],
+        from: { email: from, name: 'CCA Monitor' },
+        subject,
+        content: [
+          { type: 'text/plain', value: plain },
+          { type: 'text/html', value: `<div style="font-family:sans-serif;line-height:1.5;">${text.replace(/\n/g, '<br>')}</div>` },
+        ],
+      }),
+    })
+  } catch (err: any) {
+    console.error(`Email alert (${alertType}) failed: ${err.message}`)
+  }
+}
+
 /** Single routing function — every alert goes through here. */
 async function routeAlert(alertType: AlertType, text: string) {
   const route = ROUTE_TABLE[alertType]
@@ -253,6 +346,10 @@ async function routeAlert(alertType: AlertType, text: string) {
     })
     savePendingAlerts(alerts)
   }
+
+  // Multi-channel: webhooks + email
+  await sendAlertWebhooks(alertType, text)
+  await sendAlertEmail(alertType, text)
 }
 
 function formatTelegramAlert(detection: Record<string, any>, analysis?: Record<string, any> | null): string {
@@ -1684,7 +1781,10 @@ async function watchForNewAuctions() {
   console.log('\nStarting new auction monitor...')
   console.log('Watching factory on: Ethereum, Base, Arbitrum, Unichain')
   console.log('Factory addresses:', FACTORY_ADDRESSES.join(', '))
-  if (process.env.WEBHOOK_URL) console.log('Webhook: enabled')
+  if (process.env.WEBHOOK_URL) console.log('Webhook (legacy): enabled')
+  const webhookUrls = (process.env.ALERT_WEBHOOK_URLS || '').split(',').filter(Boolean)
+  if (webhookUrls.length > 0) console.log(`Alert webhooks: ${webhookUrls.length} endpoint(s)`)
+  if (process.env.SENDGRID_API_KEY && process.env.ALERT_EMAIL) console.log(`Email alerts: ${process.env.ALERT_EMAIL_MODE || 'digest'} mode → ${process.env.ALERT_EMAIL}`)
   if (process.env.TELEGRAM_BOT_TOKEN) {
     const channels = []
     if (TELEGRAM_TARGETS.dm) channels.push('DM')

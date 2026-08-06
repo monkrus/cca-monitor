@@ -104,9 +104,24 @@ cd api && npx wrangler deploy   # deploy to Cloudflare
 cd api && npx wrangler dev      # local dev server
 ```
 
-## Webhook Alerts
+## Alert Channels
 
-Set `WEBHOOK_URL` in `.env` to receive JSON POST notifications when new auctions are detected in watch mode. Works with Slack incoming webhooks, Discord webhooks, or any HTTP endpoint.
+All alerts route through a single `routeAlert()` function. Configure any combination:
+
+| Channel | Env Vars | Description |
+|---------|----------|-------------|
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_PREMIUM_CHANNEL_ID`, `TELEGRAM_PUBLIC_CHANNEL_ID` | DM, premium (instant), public (30-min delay) |
+| Webhooks | `ALERT_WEBHOOK_URLS` | Comma-separated URLs. Auto-formats for Discord (embeds) and Slack (blocks). Generic endpoints get `{ type, text, html, timestamp }` |
+| Email | `SENDGRID_API_KEY`, `ALERT_EMAIL` | Via SendGrid API. `ALERT_EMAIL_MODE=digest` (default) sends daily/weekly only; `all` sends every alert |
+| Legacy webhook | `WEBHOOK_URL` | Raw JSON payload on new auction detection only |
+
+Example `.env` for Discord + email digest:
+```
+ALERT_WEBHOOK_URLS=https://discord.com/api/webhooks/123/abc
+SENDGRID_API_KEY=SG.xxxxx
+ALERT_EMAIL=team@example.com
+ALERT_EMAIL_MODE=digest
+```
 
 ## Known Auctions
 
