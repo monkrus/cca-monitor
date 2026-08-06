@@ -195,6 +195,50 @@
   .insight-label { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.3px; }
   .insights-footer { margin-top: 14px; font-size: 12px; color: var(--muted); border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px; }
 
+  /* ── Compare tool ──────────────────────────────────────── */
+  .compare-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(17,24,39,0.97); border-top: 2px solid var(--accent);
+    padding: 12px 32px; display: none; align-items: center; gap: 12px;
+    backdrop-filter: blur(8px);
+  }
+  .compare-chips { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }
+  .compare-chip {
+    background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3);
+    color: var(--text); padding: 4px 12px; border-radius: 16px; font-size: 12px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .compare-chip .remove { cursor: pointer; opacity: 0.6; font-size: 14px; line-height: 1; }
+  .compare-chip .remove:hover { opacity: 1; color: var(--red); }
+  .compare-btn {
+    background: var(--accent); color: white; border: none; padding: 8px 20px;
+    border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .compare-btn:hover { background: #4f46e5; }
+  .compare-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .compare-btn-clear {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;
+  }
+  .compare-btn-clear:hover { border-color: var(--red); color: var(--red); }
+  .compare-cb { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; vertical-align: middle; }
+  .compare-panel {
+    margin: 0 32px 24px; background: var(--surface); border: 2px solid var(--accent);
+    border-radius: 8px; padding: 24px; display: none;
+  }
+  .compare-panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--accent); }
+  .compare-layout { display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; }
+  .compare-table-wrap { overflow-x: auto; }
+  .compare-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .compare-table th { text-align: left; padding: 8px 12px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .compare-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .compare-table td.best { color: var(--green); font-weight: 700; }
+  .compare-table .metric-label { color: var(--muted); font-weight: 600; }
+  .compare-close { float: right; background: none; border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  .compare-close:hover { border-color: var(--accent); color: var(--text); }
+  .compare-radar { display: flex; justify-content: center; }
+  .compare-radar canvas { max-width: 100%; }
+
   .empty-state { text-align: center; padding: 80px 32px; color: var(--muted); }
   .empty-state h2 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
 
@@ -227,6 +271,9 @@
     .hide-mobile { display: none; }
     .detail-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .detail-panel { padding: 14px 16px; }
+    .compare-bar { padding: 10px 16px; }
+    .compare-panel { margin: 0 16px 16px; padding: 16px; }
+    .compare-layout { grid-template-columns: 1fr; }
   }
   @media (max-width: 480px) {
     .stat-card { flex-basis: 100%; }
@@ -277,6 +324,8 @@
   </select>
 </div>
 
+<div id="comparePanel" class="compare-panel"></div>
+
 <div class="table-wrap">
   <div class="table-header">
     <h2>Auctions <span id="filterCount" style="font-size:12px;color:var(--muted);font-weight:400;"></span></h2>
@@ -289,6 +338,7 @@
   <table>
     <thead>
       <tr id="thead-row">
+        <th style="width:32px;padding:10px 4px;"></th>
         <th data-key="name">Token <span class="sort-arrow"></span></th>
         <th data-key="chain">Chain <span class="sort-arrow"></span></th>
         <th data-key="graduated">Status <span class="sort-arrow"></span></th>
@@ -312,6 +362,12 @@
   </div>
 </div>
 
+<div id="compareBar" class="compare-bar">
+  <div class="compare-chips" id="compareChips"></div>
+  <button class="compare-btn" id="compareBtn" disabled onclick="openCompare()">Compare</button>
+  <button class="compare-btn-clear" onclick="clearCompare()">Clear</button>
+</div>
+
 <script>
 var allData = null;
 var showTests = false;
@@ -322,6 +378,8 @@ var filterSearch = '';
 var filterChain = '';
 var filterStatus = '';
 var filterHook = '';
+var compareSet = {};
+var showComparePanel = false;
 
 async function load() {
   try {
@@ -888,9 +946,11 @@ function renderTable(data) {
 
     var rowClass = a.isTest ? 'test-row data-row' : 'data-row';
     var isExpanded = expandedRow === idx;
+    var sym = a.tokenSymbol || a.name;
 
     var row = '<tr class="' + rowClass + '" onclick="toggleDetail(' + idx + ')" title="Click to expand">' +
-      '<td><strong>' + (a.tokenSymbol || a.name) + '</strong>' + (a.isTest ? ' <span class="badge badge-flag">TEST</span>' : '') + '<br><span class="mono">' + (a.tokenName || '') + '</span></td>' +
+      '<td style="padding:12px 4px;" onclick="event.stopPropagation()"><input type="checkbox" class="compare-cb" data-name="' + sym + '" ' + (compareSet[sym] ? 'checked' : '') + ' onchange="toggleCompare(\'' + sym + '\', event)" title="Add to compare"></td>' +
+      '<td><strong>' + sym + '</strong>' + (a.isTest ? ' <span class="badge badge-flag">TEST</span>' : '') + '<br><span class="mono">' + (a.tokenName || '') + '</span></td>' +
       '<td><span class="badge badge-chain">' + a.chain + '</span></td>' +
       '<td>' + statusBadge + '</td>' +
       '<td class="hide-mobile">' + (a.currencySymbol || '?') + '</td>' +
@@ -964,6 +1024,251 @@ function downloadBlob(blob, filename) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ── Compare tool ─────────────────────────────────────────────
+function compareCount() { return Object.keys(compareSet).length; }
+
+function toggleCompare(name, event) {
+  if (event) event.stopPropagation();
+  if (compareSet[name]) {
+    delete compareSet[name];
+    // Uncheck in table if visible
+    document.querySelectorAll('.compare-cb').forEach(function(cb) {
+      if (cb.getAttribute('data-name') === name) cb.checked = false;
+    });
+  } else {
+    if (compareCount() >= 4) {
+      if (event && event.target && event.target.type === 'checkbox') event.target.checked = false;
+      return;
+    }
+    compareSet[name] = true;
+  }
+  updateCompareBar();
+  if (showComparePanel) renderComparePanel();
+}
+
+function clearCompare() {
+  compareSet = {};
+  showComparePanel = false;
+  document.getElementById('comparePanel').style.display = 'none';
+  updateCompareBar();
+  document.querySelectorAll('.compare-cb').forEach(function(cb) { cb.checked = false; });
+  document.body.style.paddingBottom = '0';
+}
+
+function updateCompareBar() {
+  var bar = document.getElementById('compareBar');
+  var count = compareCount();
+  bar.style.display = count > 0 ? 'flex' : 'none';
+  document.body.style.paddingBottom = count > 0 ? '56px' : '0';
+  var names = Object.keys(compareSet);
+  document.getElementById('compareChips').innerHTML = names.map(function(name) {
+    return '<span class="compare-chip">' + name + '<span class="remove" onclick="toggleCompare(\'' + name + '\', event)">&times;</span></span>';
+  }).join('');
+  var btn = document.getElementById('compareBtn');
+  btn.disabled = count < 2;
+  btn.textContent = 'Compare (' + count + ')';
+}
+
+function openCompare() {
+  if (compareCount() < 2) return;
+  showComparePanel = true;
+  renderComparePanel();
+  document.getElementById('comparePanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeCompare() {
+  showComparePanel = false;
+  document.getElementById('comparePanel').style.display = 'none';
+}
+
+function renderComparePanel() {
+  var panel = document.getElementById('comparePanel');
+  if (!showComparePanel || compareCount() < 2 || !allData) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  var names = Object.keys(compareSet);
+  var selected = [];
+  names.forEach(function(name) {
+    var match = allData.auctions.find(function(a) { return (a.tokenSymbol || a.name) === name; });
+    if (match) selected.push(match);
+  });
+  if (selected.length < 2) { panel.style.display = 'none'; return; }
+
+  var metrics = [
+    { label: 'Status', fmt: function(a) { return a.graduated ? '<span class="badge badge-green">Graduated</span>' : '<span class="badge badge-red">Failed</span>'; } },
+    { label: 'Chain', fmt: function(a) { return '<span class="badge badge-chain">' + a.chain + '</span>'; } },
+    { label: 'Currency', fmt: function(a) { return a.currencySymbol || '?'; } },
+    { label: 'Raised', fmt: function(a) { return a.currencyRaisedFormatted || '\u2014'; }, val: function(a) { return parseRaised(a); }, higher: true },
+    { label: 'Total Bids', fmt: function(a) { return a.totalBids != null ? a.totalBids.toLocaleString() : '\u2014'; }, val: function(a) { return a.totalBids || 0; }, higher: true },
+    { label: 'Unique Bidders', fmt: function(a) { return a.uniqueBidders != null ? a.uniqueBidders.toLocaleString() : '\u2014'; }, val: function(a) { return a.uniqueBidders || 0; }, higher: true },
+    { label: 'Duration', fmt: function(a) { return (a.durationHours / 24).toFixed(1) + ' days'; } },
+    { label: 'Floor Price', fmt: function(a) { return a.floorPrice || '?'; } },
+    { label: 'Clearing Price', fmt: function(a) { return a.clearingPrice || '?'; } },
+    { label: 'Clearing / Floor', fmt: function(a) { return a.clearingVsFloor || '\u2014'; }, val: function(a) { return parseFloat(a.clearingVsFloor) || 0; }, higher: true },
+    { label: 'HHI', fmt: function(a) { if (!a.concentration) return '\u2014'; var c = a.concentration; var color = c.hhi < 1500 ? 'var(--green)' : c.hhi < 2500 ? 'var(--amber)' : 'var(--red)'; return '<span style="color:' + color + '">' + c.hhi + '</span> (' + (c.effectiveCompetition ? 'competitive' : 'concentrated') + ')'; }, val: function(a) { return a.concentration ? a.concentration.hhi : null; }, higher: false },
+    { label: 'Top-5 Share', fmt: function(a) { return a.concentration ? a.concentration.top5Pct + '%' : '\u2014'; }, val: function(a) { return a.concentration ? a.concentration.top5Pct : null; }, higher: false },
+    { label: 'Late Bids', fmt: function(a) { return a.concentration ? a.concentration.lateBidPct + '%' : '\u2014'; } },
+    { label: 'Hook', fmt: function(a) { return a.hasValidationHook ? '<span class="badge badge-green">Yes</span>' : '<span class="badge badge-red">No</span>'; } },
+  ];
+
+  // Price data if available
+  selected.forEach(function(a) {
+    if (a.currentPriceUsd) {
+      var hasPrice = metrics.find(function(m) { return m.label === 'Current Price'; });
+      if (!hasPrice) {
+        metrics.push({ label: 'Current Price', fmt: function(a) { return a.currentPriceUsd ? '$' + parseFloat(a.currentPriceUsd).toFixed(6) : '\u2014'; } });
+        metrics.push({ label: '24h Change', fmt: function(a) { if (!a.priceChange24h) return '\u2014'; var c = parseFloat(a.priceChange24h); return '<span style="color:' + (c >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (c >= 0 ? '+' : '') + c.toFixed(1) + '%</span>'; } });
+      }
+    }
+  });
+
+  var headerCells = '<th class="metric-label"></th>' + selected.map(function(a) {
+    return '<th>' + (a.tokenSymbol || a.name) + '</th>';
+  }).join('');
+
+  var rows = metrics.map(function(m) {
+    var vals = m.val ? selected.map(function(a) { return m.val(a); }) : null;
+    var bestIdx = -1;
+    if (vals && m.higher !== undefined) {
+      var validIdxs = [];
+      vals.forEach(function(v, i) { if (v !== null && v > 0) validIdxs.push(i); });
+      if (validIdxs.length > 1) {
+        var bestVal = m.higher
+          ? Math.max.apply(null, validIdxs.map(function(i) { return vals[i]; }))
+          : Math.min.apply(null, validIdxs.map(function(i) { return vals[i]; }));
+        bestIdx = vals.indexOf(bestVal);
+      }
+    }
+    var cells = selected.map(function(a, i) {
+      var cls = i === bestIdx ? ' class="best"' : '';
+      return '<td' + cls + '>' + m.fmt(a) + '</td>';
+    }).join('');
+    return '<tr><td class="metric-label">' + m.label + '</td>' + cells + '</tr>';
+  }).join('');
+
+  panel.style.display = 'block';
+  panel.innerHTML = '<button class="compare-close" onclick="closeCompare()">Close comparison</button>' +
+    '<h3>Auction Comparison (' + selected.length + ')</h3>' +
+    '<div class="compare-layout">' +
+    '<div class="compare-table-wrap"><table class="compare-table"><thead><tr>' + headerCells + '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<div class="compare-radar"><canvas id="radarCanvas" width="280" height="280"></canvas></div>' +
+    '</div>';
+
+  drawRadar(selected);
+}
+
+function drawRadar(auctions) {
+  var canvas = document.getElementById('radarCanvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  var W = 280, H = 280;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+
+  var cx = W / 2, cy = W / 2 - 10;
+  var R = 90;
+  var colors = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444'];
+
+  var axes = [
+    { label: 'Bidders', val: function(a) { return a.uniqueBidders || 0; } },
+    { label: 'Bids', val: function(a) { return a.totalBids || 0; } },
+    { label: 'Raised', val: function(a) { return parseRaised(a); } },
+    { label: 'Clear/Floor', val: function(a) { return parseFloat(a.clearingVsFloor) || 0; } },
+    { label: 'Competition', val: function(a) { return a.concentration ? 10000 - a.concentration.hhi : 0; } },
+    { label: 'Duration', val: function(a) { return a.durationHours || 0; } },
+  ];
+  var n = axes.length;
+
+  // Normalize
+  var maxVals = axes.map(function(ax) {
+    var vals = auctions.map(function(a) { return ax.val(a); });
+    return Math.max.apply(null, vals) || 1;
+  });
+
+  ctx.clearRect(0, 0, W * dpr, H * dpr);
+
+  // Grid rings
+  for (var ring = 1; ring <= 4; ring++) {
+    var r = (ring / 4) * R;
+    ctx.beginPath();
+    for (var i = 0; i <= n; i++) {
+      var angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+      var x = cx + r * Math.cos(angle);
+      var y = cy + r * Math.sin(angle);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Axes
+  for (var i = 0; i < n; i++) {
+    var angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + R * Math.cos(angle), cy + R * Math.sin(angle));
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.stroke();
+  }
+
+  // Data polygons
+  auctions.forEach(function(a, ai) {
+    var hex = colors[ai % colors.length];
+    var hr = parseInt(hex.slice(1, 3), 16);
+    var hg = parseInt(hex.slice(3, 5), 16);
+    var hb = parseInt(hex.slice(5, 7), 16);
+    ctx.beginPath();
+    for (var i = 0; i <= n; i++) {
+      var idx = i % n;
+      var val = axes[idx].val(a) / maxVals[idx];
+      var angle = (idx / n) * 2 * Math.PI - Math.PI / 2;
+      var x = cx + R * val * Math.cos(angle);
+      var y = cy + R * val * Math.sin(angle);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = hex;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(' + hr + ',' + hg + ',' + hb + ',0.08)';
+    ctx.fill();
+  });
+
+  // Axis labels
+  ctx.font = '600 10px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(226,232,240,0.6)';
+  for (var i = 0; i < n; i++) {
+    var angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+    var lx = cx + (R + 18) * Math.cos(angle);
+    var ly = cy + (R + 18) * Math.sin(angle);
+    ctx.fillText(axes[i].label, lx, ly);
+  }
+
+  // Legend at bottom
+  ctx.font = '600 11px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  var legendY = H - 10;
+  var totalW = auctions.reduce(function(s, a) { return s + (a.tokenSymbol || a.name).length * 7 + 30; }, 0);
+  var startX = (W - totalW) / 2;
+  auctions.forEach(function(a, i) {
+    var hex = colors[i % colors.length];
+    ctx.fillStyle = hex;
+    ctx.fillRect(startX, legendY - 5, 10, 10);
+    ctx.fillStyle = 'rgba(226,232,240,0.7)';
+    ctx.fillText(a.tokenSymbol || a.name, startX + 14, legendY);
+    startX += (a.tokenSymbol || a.name).length * 7 + 30;
+  });
 }
 
 load();
