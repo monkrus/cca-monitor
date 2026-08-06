@@ -584,6 +584,33 @@ const PRICE_CHECK_INTERVAL = 10 * 60 * 1000 // check prices every 10 min
 const PRICE_ALERT_BANDS = [-10, -20, -30] // threshold bands
 const PRICE_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000 // 24h cooldown per token
 
+// ─── Price history ──────────────────────────────────────────────────────────
+interface PricePoint { t: string; p: number } // ISO timestamp, price USD
+type PriceHistory = Record<string, PricePoint[]> // keyed by tokenSymbol
+
+function loadPriceHistory(): PriceHistory {
+  return readJsonSafe<PriceHistory>('data/price-history.json', {})
+}
+
+function appendPriceSnapshot(symbol: string, priceUsd: string) {
+  const price = parseFloat(priceUsd)
+  if (!price || price <= 0) return
+  const history = loadPriceHistory()
+  if (!history[symbol]) history[symbol] = []
+  const points = history[symbol]
+  // Deduplicate: skip if last point is within 5 min
+  const now = new Date()
+  if (points.length > 0) {
+    const last = new Date(points[points.length - 1].t)
+    if (now.getTime() - last.getTime() < 5 * 60 * 1000) return
+  }
+  points.push({ t: now.toISOString(), p: price })
+  // Keep max 90 days of data (~13K points at 10-min intervals)
+  const cutoff = now.getTime() - 90 * 24 * 60 * 60 * 1000
+  history[symbol] = points.filter(pt => new Date(pt.t).getTime() > cutoff)
+  writeJsonAtomic('data/price-history.json', history)
+}
+
 function loadTrackedTokens(): TrackedToken[] {
   return readJsonSafe<TrackedToken[]>('data/tracked-tokens.json', [])
 }
@@ -623,6 +650,9 @@ async function pollPrices() {
   for (const token of trackedTokens) {
     const price = await fetchTokenPrice(token.address, token.chain)
     if (!price) continue
+
+    // Record price history
+    appendPriceSnapshot(token.symbol, price.priceUsd)
 
     const prevPrice = token.lastPriceUsd
     token.lastPriceUsd = price.priceUsd
@@ -2059,6 +2089,7 @@ async function main() {
           ;(r as any).priceChange24h = price.change24h
           ;(r as any).volume24h = price.volume24h
           ;(r as any).priceSnapshotAt = new Date().toISOString()
+          appendPriceSnapshot(r.tokenSymbol || r.name, price.priceUsd)
           console.log(`  ${r.name}: $${parseFloat(price.priceUsd).toFixed(6)} (24h: ${price.change24h}%)`)
         } else {
           console.log(`  ${r.name}: no DEX pool found`)
@@ -2107,6 +2138,12 @@ async function main() {
         overlapMatrix,
       },
       auctions: allResults,
+    }
+
+    // Attach price history for dashboard charts
+    const priceHistory = loadPriceHistory()
+    if (Object.keys(priceHistory).length > 0) {
+      ;(output as any).priceHistory = priceHistory
     }
 
     writeJsonAtomic('data/results.json', output)

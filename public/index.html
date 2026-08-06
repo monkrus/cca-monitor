@@ -81,6 +81,7 @@
   .price-card .price-change.up { color: var(--green); }
   .price-card .price-change.down { color: var(--red); }
   .price-card .price-meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .price-card .sparkline { margin-top: 8px; width: 100%; height: 40px; display: block; }
 
   .table-wrap { padding: 0 32px 32px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .table-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; flex-wrap: wrap; }
@@ -440,21 +441,76 @@ function renderPriceRow(data) {
     document.getElementById('priceRow').innerHTML = '';
     return;
   }
+  var ph = data.priceHistory || {};
   document.getElementById('priceRow').innerHTML = real.map(function(a) {
+    var sym = a.tokenSymbol || a.name;
     var price = parseFloat(a.currentPriceUsd);
     var change = parseFloat(a.priceChange24h || '0');
     var changeCls = change >= 0 ? 'up' : 'down';
     var changeStr = (change >= 0 ? '+' : '') + change.toFixed(1) + '%';
     var vol = a.volume24h ? '$' + parseFloat(a.volume24h).toLocaleString('en-US', {maximumFractionDigits: 0}) : '';
     var when = a.priceSnapshotAt ? new Date(a.priceSnapshotAt).toLocaleString() : '';
+    var hasHistory = ph[sym] && ph[sym].length > 1;
     return '<div class="price-card">' +
-      '<div class="price-token">' + (a.tokenSymbol || a.name) + '</div>' +
+      '<div class="price-token">' + sym + '</div>' +
       '<span class="price-usd">$' + price.toFixed(6) + '</span>' +
       '<span class="price-change ' + changeCls + '">' + changeStr + ' 24h</span>' +
       (vol ? '<div class="price-meta">Vol: ' + vol + '</div>' : '') +
+      (hasHistory ? '<canvas class="sparkline" id="spark-' + sym + '"></canvas>' : '') +
       (when ? '<div class="price-meta">Snapshot: ' + when + '</div>' : '') +
       '</div>';
   }).join('');
+
+  // Draw sparklines
+  real.forEach(function(a) {
+    var sym = a.tokenSymbol || a.name;
+    var points = ph[sym];
+    if (!points || points.length < 2) return;
+    var canvas = document.getElementById('spark-' + sym);
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.offsetWidth;
+    var h = canvas.offsetHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    var prices = points.map(function(pt) { return pt.p; });
+    var min = Math.min.apply(null, prices);
+    var max = Math.max.apply(null, prices);
+    var range = max - min || 1;
+    var pad = 2;
+
+    // Gradient fill
+    var isUp = prices[prices.length - 1] >= prices[0];
+    var color = isUp ? 'rgba(16,185,129,' : 'rgba(239,68,68,';
+    ctx.beginPath();
+    for (var i = 0; i < prices.length; i++) {
+      var x = (i / (prices.length - 1)) * w;
+      var y = h - pad - ((prices[i] - min) / range) * (h - pad * 2);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = color + '0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Fill under curve
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = color + '0.1)';
+    ctx.fill();
+
+    // Label: date range
+    var first = new Date(points[0].t);
+    var last = new Date(points[points.length - 1].t);
+    var days = Math.round((last - first) / (24 * 60 * 60 * 1000));
+    var label = days > 0 ? days + 'd' : '<1d';
+    var meta = canvas.parentNode.querySelector('.price-meta:last-child');
+    if (meta) meta.textContent = label + ' history (' + points.length + ' pts)';
+  });
 }
 
 function renderCharts(data) {
