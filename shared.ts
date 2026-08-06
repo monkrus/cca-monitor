@@ -3,7 +3,7 @@
  */
 
 import { createPublicClient, http, parseAbiItem, defineChain } from 'viem'
-import { mainnet, base, arbitrum } from 'viem/chains'
+import { mainnet, base, arbitrum, optimism, polygon } from 'viem/chains'
 import * as fs from 'fs'
 import * as dotenv from 'dotenv'
 dotenv.config()
@@ -23,6 +23,8 @@ export const CHAINS: Record<string, { chain: any, secsPerBlock: number, explorer
   base:     { chain: base,     secsPerBlock: 2,    explorer: 'https://basescan.org' },
   arbitrum: { chain: arbitrum, secsPerBlock: 0.25, explorer: 'https://arbiscan.io' },
   unichain: { chain: unichain, secsPerBlock: 1,    explorer: 'https://uniscan.xyz' },
+  optimism: { chain: optimism, secsPerBlock: 2,    explorer: 'https://optimistic.etherscan.io' },
+  polygon:  { chain: polygon,  secsPerBlock: 2,    explorer: 'https://polygonscan.com' },
 }
 
 // ─── RPC clients ─────────────────────────────────────────────────────────────
@@ -30,6 +32,8 @@ export const PUBLIC_RPCS: Record<string, string[]> = {
   mainnet:  ['https://eth.blockscout.com/api/eth-rpc'],
   base:     ['https://mainnet.base.org', 'https://base.blockscout.com/api/eth-rpc'],
   arbitrum: ['https://arbitrum.blockscout.com/api/eth-rpc'],
+  optimism: ['https://mainnet.optimism.io', 'https://optimism.blockscout.com/api/eth-rpc'],
+  polygon:  ['https://polygon-rpc.com', 'https://polygon.blockscout.com/api/eth-rpc'],
 }
 
 export function getClient(chainName: string, usePublicRpc = false, rpcIndex = 0) {

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml)
 
-On-chain data collector and live monitor for Uniswap's Continuous Clearing Auctions (CCAs). Tracks 16 auctions (5 real, 11 test) across Ethereum, Base, Arbitrum, and Unichain with 15,520 unique bidder addresses indexed. 94 automated checks guard dataset integrity.
+On-chain data collector and live monitor for Uniswap's Continuous Clearing Auctions (CCAs). Tracks 16 auctions (5 real, 11 test) across Ethereum, Base, Arbitrum, Unichain, Optimism, and Polygon with 15,520 unique bidder addresses indexed. 94 automated checks guard dataset integrity.
 
 >**Click:** [Dashboard](https://monkrus.github.io/cca-monitor/)    **Telegram:** [@cca_auctions](https://t.me/cca_auctions) (free, 30-min delay) | [@cca_monitor_bot](https://t.me/cca_monitor_bot) (premium)
 
@@ -151,7 +151,7 @@ wOCT's floor price decodes to near-zero (Q96 value `4294967300` = ~5.4e-20), mak
 ### Participation Strategy
 - **Oversubscription signals**: When `totalRaised` far exceeds `requiredRaise`, the auction is oversubscribed. CAP was 5.5x — meaning most bidders get partial fills. This data helps size bids.
 - **Clearing prediction**: Historical clearing/floor ratios create a baseline. New auctions with similar parameters will likely clear in similar ranges, informing bid price placement.
-- **Cross-chain coverage**: CCAs can deploy on any supported chain. The monitor watches all four simultaneously, so nothing is missed regardless of which chain a project chooses.
+- **Cross-chain coverage**: CCAs can deploy on any supported chain. The monitor watches all six simultaneously, so nothing is missed regardless of which chain a project chooses.
 
 ### Programmatic Use
 - **Bot integration**: Webhook alerts can trigger automated analysis pipelines, Telegram/Discord bots, or even auto-bidding logic.

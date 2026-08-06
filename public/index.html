@@ -311,6 +311,8 @@
     <option value="base">Base</option>
     <option value="arbitrum">Arbitrum</option>
     <option value="unichain">Unichain</option>
+    <option value="optimism">Optimism</option>
+    <option value="polygon">Polygon</option>
   </select>
   <select id="statusFilter" onchange="applyFilters()">
     <option value="">All status</option>
@@ -828,7 +830,7 @@ function toggleDetail(idx) {
 
 function buildDetailPanel(a) {
   var chainSlug = a.chain === 'mainnet' ? 'ethereum' : a.chain;
-  var explorerBase = { mainnet: 'https://etherscan.io', base: 'https://basescan.org', arbitrum: 'https://arbiscan.io', unichain: 'https://uniscan.xyz' }[a.chain] || '';
+  var explorerBase = { mainnet: 'https://etherscan.io', base: 'https://basescan.org', arbitrum: 'https://arbiscan.io', unichain: 'https://uniscan.xyz', optimism: 'https://optimistic.etherscan.io', polygon: 'https://polygonscan.com' }[a.chain] || '';
   var uniswapUrl = 'https://app.uniswap.org/explore/auctions/' + chainSlug + '/' + a.tokenAddress;
   var explorerUrl = explorerBase + '/address/' + a.contractAddress;
   var tokenUrl = explorerBase + '/address/' + a.tokenAddress;
