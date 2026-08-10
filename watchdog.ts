@@ -43,7 +43,7 @@ interface Pm2Process {
 function checkAndRestart() {
   let processes: Pm2Process[]
   try {
-    const raw = execSync('pm2 jlist', { encoding: 'utf-8', timeout: 30_000 })
+    const raw = execSync('pm2 jlist', { encoding: 'utf-8', timeout: 30_000, windowsHide: true })
     processes = JSON.parse(raw)
   } catch (e: any) {
     // ETIMEDOUT is transient on Windows under load — skip silently
@@ -82,7 +82,7 @@ function checkAndRestart() {
 
   // Restart everything via ecosystem config
   try {
-    execSync('pm2 start ecosystem.config.cjs', { encoding: 'utf-8', timeout: 30_000 })
+    execSync('pm2 start ecosystem.config.cjs', { encoding: 'utf-8', timeout: 30_000, windowsHide: true })
     console.log('[watchdog] Restarted processes')
   } catch (e) {
     console.error('[watchdog] Restart failed:', e)
