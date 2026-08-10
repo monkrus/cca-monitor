@@ -33,7 +33,7 @@ export const PUBLIC_RPCS: Record<string, string[]> = {
   base:     ['https://mainnet.base.org', 'https://base.blockscout.com/api/eth-rpc'],
   arbitrum: ['https://arbitrum.blockscout.com/api/eth-rpc'],
   optimism: ['https://mainnet.optimism.io', 'https://optimism.blockscout.com/api/eth-rpc'],
-  polygon:  ['https://polygon-rpc.com', 'https://polygon.blockscout.com/api/eth-rpc'],
+  polygon:  ['https://polygon.blockscout.com/api/eth-rpc', 'https://polygon.drpc.org', 'https://polygon-bor-rpc.publicnode.com'],
 }
 
 export function getClient(chainName: string, usePublicRpc = false, rpcIndex = 0) {
@@ -43,6 +43,7 @@ export function getClient(chainName: string, usePublicRpc = false, rpcIndex = 0)
     rpcUrl = urls[rpcIndex] || urls[0]
   } else {
     rpcUrl = process.env[`RPC_URL_${chainName.toUpperCase()}`]
+    if (!rpcUrl) rpcUrl = PUBLIC_RPCS[chainName]?.[0]
   }
   const chainCfg = CHAINS[chainName]
   if (!chainCfg) throw new Error(`Unknown chain: ${chainName}`)
