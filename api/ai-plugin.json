@@ -1,0 +1,49 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "CCA Monitor API",
+  "name_for_model": "cca_monitor",
+  "description_for_human": "Query Continuous Clearing Auction (CCA) data from Uniswap V4 — auction results, bidder analytics, concentration metrics, and overlap matrices.",
+  "description_for_model": "Access structured data about Uniswap V4 Continuous Clearing Auctions (CCAs). Retrieve auction results (clearing prices, floor prices, graduation status, bid counts), bidder concentration metrics (HHI, Gini, top-N share), bidder overlap/flow between auctions, and per-bidder cross-auction activity. Supports filtering by chain (mainnet, base), status (graduated, failed), and token search. Free tier provides basic auction fields; paid tier unlocks concentration, overlap, and bidder endpoints.",
+  "auth": {
+    "type": "multi",
+    "methods": [
+      {
+        "type": "api_key",
+        "header": "X-API-Key",
+        "description": "Static API key for pro tier access. Contact @monkrus on Telegram or X."
+      },
+      {
+        "type": "cloudflare_agent_wallet",
+        "status": "coming_soon",
+        "description": "Cloudflare agent identity + wallet for autonomous pay-per-call access. Pay with stablecoins, no API key needed."
+      }
+    ]
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://cca-monitor-api.sergeigodev.workers.dev/.well-known/openapi.json",
+    "has_user_authentication": false
+  },
+  "payment": {
+    "provider": "cloudflare.pay",
+    "status": "coming_soon",
+    "currency": "USDC",
+    "pricing": {
+      "model": "per_call",
+      "free_endpoints": [
+        "/api/v1/auctions",
+        "/api/v1/auctions/:name",
+        "/api/v1/summary"
+      ],
+      "paid_endpoints": {
+        "/api/v1/concentration": "$0.001",
+        "/api/v1/overlap": "$0.001",
+        "/api/v1/bidders": "$0.005"
+      },
+      "note": "Until cloudflare.pay launches, use an API key for pro endpoints."
+    }
+  },
+  "logo_url": "https://monkrus.github.io/cca-monitor/favicon.ico",
+  "contact_email": "sergeigodev@gmail.com",
+  "legal_info_url": "https://github.com/monkrus/cca-monitor"
+}
