@@ -2,27 +2,36 @@
  * CCA Monitor API — Cloudflare Worker
  *
  * Serves auction data from GitHub with CORS, filtering, caching, tiered auth,
- * per-endpoint pricing, usage metering, and AI agent discovery.
+ * x402 agentic payments (USDC on Base), usage metering, and AI agent discovery.
  *
  * Deploy: cd api && npx wrangler deploy
  * Free tier: 100K requests/day (Cloudflare), 60 req/min per IP
  *
- * Endpoints (free — no API key):
+ * Endpoints (free — no auth):
  *   GET /api/v1/auctions          — auctions with basic fields
  *   GET /api/v1/auctions/:name    — single auction (basic fields)
  *   GET /api/v1/summary           — summary stats
  *   GET /                         — API docs
  *
- * Endpoints (pro — requires X-API-Key or Cloudflare agent wallet):
+ * Endpoints (pro — requires X-API-Key or x402 USDC payment):
  *   GET /api/v1/auctions          — full fields incl. concentration, Q96 prices
  *   GET /api/v1/auctions/:name    — full single auction
- *   GET /api/v1/overlap           — bidder overlap matrix
- *   GET /api/v1/bidders           — bidder index (top bidders, cross-auction)
- *   GET /api/v1/concentration     — concentration metrics for all auctions
+ *   GET /api/v1/overlap           — bidder overlap matrix ($0.001/call)
+ *   GET /api/v1/bidders           — bidder index ($0.005/call)
+ *   GET /api/v1/concentration     — concentration metrics ($0.001/call)
  *
  * Agent discovery:
  *   GET /.well-known/ai-plugin.json   — AI agent plugin manifest
  *   GET /api/v1/usage/:identity       — usage stats for an agent identity
+ *
+ * x402 payment flow:
+ *   1. Agent hits pro endpoint without API key → 402 + PAYMENT-REQUIRED header
+ *   2. Agent signs USDC payment → retries with PAYMENT-SIGNATURE header
+ *   3. Worker verifies via facilitator → serves data + settles payment
+ *
+ * Env vars (set via wrangler secret):
+ *   API_KEYS         — comma-separated pro API keys
+ *   PAYMENT_ADDRESS  — 0x wallet address to receive USDC payments
  */
 
 const AI_PLUGIN = {
@@ -30,24 +39,25 @@ const AI_PLUGIN = {
   name_for_human: 'CCA Monitor API',
   name_for_model: 'cca_monitor',
   description_for_human: 'Query Continuous Clearing Auction (CCA) data from Uniswap V4 — auction results, bidder analytics, concentration metrics, and overlap matrices.',
-  description_for_model: 'Access structured data about Uniswap V4 Continuous Clearing Auctions (CCAs). Retrieve auction results (clearing prices, floor prices, graduation status, bid counts), bidder concentration metrics (HHI, Gini, top-N share), bidder overlap/flow between auctions, and per-bidder cross-auction activity. Supports filtering by chain (mainnet, base), status (graduated, failed), and token search. Free tier provides basic auction fields; paid tier unlocks concentration, overlap, and bidder endpoints.',
+  description_for_model: 'Access structured data about Uniswap V4 Continuous Clearing Auctions (CCAs). Retrieve auction results (clearing prices, floor prices, graduation status, bid counts), bidder concentration metrics (HHI, Gini, top-N share), bidder overlap/flow between auctions, and per-bidder cross-auction activity. Supports filtering by chain (mainnet, base), status (graduated, failed), and token search. Free tier provides basic auction fields; paid tier unlocks concentration, overlap, and bidder endpoints. Pro endpoints accept x402 USDC payments on Base.',
   auth: {
     type: 'multi',
     methods: [
       { type: 'api_key', header: 'X-API-Key', description: 'Static API key for pro tier access. Contact @monkrus on Telegram or X.' },
-      { type: 'cloudflare_agent_wallet', status: 'coming_soon', description: 'Cloudflare agent identity + wallet for autonomous pay-per-call access. Pay with stablecoins, no API key needed.' },
+      { type: 'x402', protocol: 'https://docs.x402.org', description: 'Pay-per-call with USDC on Base. Send GET request, receive 402 with payment requirements, sign and retry.' },
     ],
   },
   api: { type: 'openapi', url: 'https://cca-monitor-api.sergeigodev.workers.dev/.well-known/openapi.json', has_user_authentication: false },
   payment: {
-    provider: 'cloudflare.pay',
-    status: 'coming_soon',
+    provider: 'x402',
+    status: 'active',
     currency: 'USDC',
+    network: 'Base (eip155:8453)',
+    facilitator: 'https://x402.org/facilitator',
     pricing: {
       model: 'per_call',
       free_endpoints: ['/api/v1/auctions', '/api/v1/auctions/:name', '/api/v1/summary'],
       paid_endpoints: { '/api/v1/concentration': '$0.001', '/api/v1/overlap': '$0.001', '/api/v1/bidders': '$0.005' },
-      note: 'Until cloudflare.pay launches, use an API key for pro endpoints.',
     },
   },
   logo_url: 'https://monkrus.github.io/cca-monitor/favicon.ico',
@@ -59,15 +69,17 @@ const DATA_URL = 'https://raw.githubusercontent.com/monkrus/cca-monitor/master/d
 const BIDDER_URL = 'https://raw.githubusercontent.com/monkrus/cca-monitor/master/data/bidder-index.json';
 const CACHE_TTL = 300; // 5 minutes
 
+// ─── x402 config ────────────────────────────────────────────────────────────
+const FACILITATOR_URL = 'https://x402.org/facilitator';
+const PAYMENT_NETWORK = 'eip155:8453'; // Base mainnet
+
 // ─── Per-endpoint pricing (USDC) ────────────────────────────────────────────
-// Free endpoints cost nothing. Paid endpoints have a per-call price.
-// These prices take effect when cloudflare.pay integration goes live.
 const PRICING = {
-  '/api/v1/auctions':      { tier: 'free', price: 0 },
-  '/api/v1/summary':       { tier: 'free', price: 0 },
-  '/api/v1/concentration': { tier: 'pro',  price: 0.001 },
-  '/api/v1/overlap':       { tier: 'pro',  price: 0.001 },
-  '/api/v1/bidders':       { tier: 'pro',  price: 0.005 },
+  '/api/v1/auctions':      { tier: 'free', price: 0,     usdcUnits: '0' },
+  '/api/v1/summary':       { tier: 'free', price: 0,     usdcUnits: '0' },
+  '/api/v1/concentration': { tier: 'pro',  price: 0.001, usdcUnits: '1000' },    // $0.001 = 1000 (6 decimals)
+  '/api/v1/overlap':       { tier: 'pro',  price: 0.001, usdcUnits: '1000' },
+  '/api/v1/bidders':       { tier: 'pro',  price: 0.005, usdcUnits: '5000' },
 };
 
 // ─── Free-tier field allowlist ───────────────────────────────────────────────
@@ -89,7 +101,7 @@ function stripToFree(auction) {
 
 // ─── Rate limiting (per IP, in-memory) ──────────────────────────────────────
 const rateLimits = new Map();
-const RATE_WINDOW = 60_000; // 1 minute
+const RATE_WINDOW = 60_000;
 const FREE_RATE_LIMIT = 30;
 const PRO_RATE_LIMIT = 300;
 
@@ -111,9 +123,8 @@ function checkRate(ip, isPro) {
 }
 
 // ─── Pluggable authentication ───────────────────────────────────────────────
-// Returns { tier: 'free'|'pro', method: 'none'|'api_key'|'agent_wallet', identity: string|null }
 function authenticate(request, env) {
-  // Method 1: Static API key (current)
+  // Method 1: Static API key
   const apiKey = request.headers.get('X-API-Key');
   if (apiKey) {
     const valid = (env.API_KEYS || '').split(',').map(k => k.trim()).filter(Boolean);
@@ -122,29 +133,153 @@ function authenticate(request, env) {
     }
   }
 
-  // Method 2: Cloudflare agent wallet identity (future — cloudflare.pay)
-  // When the SDK ships, this will verify the agent's wallet signature and
-  // check payment status. The header name follows Cloudflare's convention.
-  const agentId = request.headers.get('CF-Agent-ID');
-  const agentSig = request.headers.get('CF-Agent-Signature');
-  if (agentId && agentSig) {
-    // TODO: When cloudflare.pay SDK is available, replace this with:
-    //   const verified = await env.AGENT_WALLETS.verify(agentId, agentSig);
-    //   if (verified && verified.hasFunds) return { tier: 'pro', method: 'agent_wallet', identity: agentId };
-    // For now, this path is inactive — agents should use API keys.
-    return { tier: 'free', method: 'agent_wallet_pending', identity: agentId };
+  // Method 2: x402 payment (checked later in requirePro — auth just detects the header)
+  const paymentSig = request.headers.get('Payment-Signature') || request.headers.get('X-Payment');
+  if (paymentSig) {
+    return { tier: 'pending_x402', method: 'x402', identity: null, paymentSig };
   }
 
   return { tier: 'free', method: 'none', identity: null };
 }
 
+// ─── x402 payment protocol ──────────────────────────────────────────────────
+
+function buildPaymentRequired(endpoint, payTo) {
+  const pricing = PRICING[endpoint];
+  if (!pricing || pricing.tier === 'free') return null;
+
+  return {
+    accepts: [{
+      scheme: 'exact',
+      network: PAYMENT_NETWORK,
+      maxAmountRequired: pricing.usdcUnits,
+      resource: endpoint,
+      description: `CCA Monitor API — ${endpoint} ($${pricing.price}/call)`,
+      mimeType: 'application/json',
+      payTo,
+    }],
+    description: `CCA Monitor API — ${endpoint}`,
+    mimeType: 'application/json',
+  };
+}
+
+// Return 402 response with x402 payment requirements
+function return402(endpoint, payTo, rateHeaders) {
+  const paymentRequired = buildPaymentRequired(endpoint, payTo);
+  const pricing = PRICING[endpoint];
+
+  const body = {
+    error: 'Payment required',
+    protocol: 'x402',
+    pricing: `$${pricing.price}/call USDC on Base`,
+    how_to_pay: 'Sign a USDC payment and retry with the PAYMENT-SIGNATURE header. See https://docs.x402.org',
+    alternatives: ['X-API-Key header (contact @monkrus on Telegram or X)'],
+  };
+
+  const encoded = btoa(JSON.stringify(paymentRequired));
+  return json(body, 402, {
+    ...rateHeaders,
+    'Payment-Required': encoded,
+    'X-Payment-Required': encoded, // v1 compat
+  });
+}
+
+// Verify a payment signature via the x402 facilitator
+async function verifyX402Payment(paymentSig, endpoint, payTo) {
+  const paymentRequired = buildPaymentRequired(endpoint, payTo);
+  if (!paymentRequired) return { ok: false, error: 'No payment config' };
+
+  try {
+    const resp = await fetch(`${FACILITATOR_URL}/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payload: paymentSig,
+        paymentRequirements: paymentRequired,
+      }),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      return { ok: false, error: `Facilitator returned ${resp.status}: ${text}` };
+    }
+
+    const result = await resp.json();
+    return { ok: result.valid === true || result.verified === true, result };
+  } catch (err) {
+    return { ok: false, error: `Facilitator error: ${err.message}` };
+  }
+}
+
+// Settle a verified payment via the x402 facilitator (non-blocking)
+async function settleX402Payment(paymentSig, endpoint, payTo) {
+  const paymentRequired = buildPaymentRequired(endpoint, payTo);
+  if (!paymentRequired) return;
+
+  try {
+    await fetch(`${FACILITATOR_URL}/settle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payload: paymentSig,
+        paymentRequirements: paymentRequired,
+      }),
+    });
+  } catch {
+    // Settlement errors are logged but don't block the response
+  }
+}
+
+// Check pro access: API key OR verified x402 payment
+// Returns { authorized, auth, response? (if 402/error) }
+async function requirePro(auth, endpoint, env, rateHeaders) {
+  // Already authorized via API key
+  if (auth.tier === 'pro') {
+    return { authorized: true, auth };
+  }
+
+  const payTo = env.PAYMENT_ADDRESS;
+
+  // x402 payment signature present — verify it
+  if (auth.tier === 'pending_x402' && auth.paymentSig && payTo) {
+    const verification = await verifyX402Payment(auth.paymentSig, endpoint, payTo);
+    if (verification.ok) {
+      return {
+        authorized: true,
+        auth: { ...auth, tier: 'pro', identity: `x402:${endpoint}`, settlementData: auth.paymentSig },
+      };
+    }
+    return {
+      authorized: false,
+      response: json(
+        { error: 'Payment verification failed', detail: verification.error },
+        402,
+        rateHeaders,
+      ),
+    };
+  }
+
+  // No auth and no payment — return 402 if payment is configured, otherwise 403
+  if (payTo) {
+    return { authorized: false, response: return402(endpoint, payTo, rateHeaders) };
+  }
+
+  // No PAYMENT_ADDRESS configured — fall back to 403 with instructions
+  return {
+    authorized: false,
+    response: json(
+      { error: 'Pro access required', pricing: `$${PRICING[endpoint]?.price}/call`, auth_options: DOCS.tiers.pro.auth },
+      403,
+      rateHeaders,
+    ),
+  };
+}
+
 // ─── Usage metering (Cloudflare KV) ─────────────────────────────────────────
-// Tracks per-identity call counts and estimated spend per endpoint.
-// Data is stored in KV with key format: usage:{identity}:{YYYY-MM}
 async function recordUsage(env, auth, endpoint) {
   if (!env.USAGE || !auth.identity) return;
 
-  const month = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const month = new Date().toISOString().slice(0, 7);
   const key = `usage:${auth.identity}:${month}`;
   const price = PRICING[endpoint]?.price || 0;
 
@@ -153,7 +288,7 @@ async function recordUsage(env, auth, endpoint) {
     const usage = raw || { identity: auth.identity, month, totalCalls: 0, totalSpend: 0, endpoints: {} };
 
     usage.totalCalls++;
-    usage.totalSpend = Math.round((usage.totalSpend + price) * 1e6) / 1e6; // avoid float drift
+    usage.totalSpend = Math.round((usage.totalSpend + price) * 1e6) / 1e6;
 
     if (!usage.endpoints[endpoint]) {
       usage.endpoints[endpoint] = { calls: 0, spend: 0 };
@@ -161,9 +296,9 @@ async function recordUsage(env, auth, endpoint) {
     usage.endpoints[endpoint].calls++;
     usage.endpoints[endpoint].spend = Math.round((usage.endpoints[endpoint].spend + price) * 1e6) / 1e6;
 
-    await env.USAGE.put(key, JSON.stringify(usage), { expirationTtl: 90 * 86400 }); // 90-day retention
+    await env.USAGE.put(key, JSON.stringify(usage), { expirationTtl: 90 * 86400 });
   } catch {
-    // Non-critical — don't fail the request if metering errors
+    // Non-critical
   }
 }
 
@@ -190,7 +325,7 @@ function cors(response) {
   const headers = new Headers(response.headers);
   headers.set('Access-Control-Allow-Origin', '*');
   headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, CF-Agent-ID, CF-Agent-Signature');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, Payment-Signature, X-Payment');
   return new Response(response.body, { status: response.status, headers });
 }
 
@@ -199,11 +334,19 @@ function json(data, status = 200, extra = {}) {
   return cors(new Response(JSON.stringify(data), { status, headers }));
 }
 
+// Add x402 settlement receipt to a response
+function withPaymentReceipt(response, receipt) {
+  if (!receipt) return response;
+  const headers = new Headers(response.headers);
+  headers.set('Payment-Response', typeof receipt === 'string' ? receipt : btoa(JSON.stringify(receipt)));
+  return new Response(response.body, { status: response.status, headers });
+}
+
 // ─── Docs ───────────────────────────────────────────────────────────────────
 const DOCS = {
   name: 'CCA Monitor API',
-  version: '3.0',
-  description: 'Uniswap V4 Continuous Clearing Auction analytics. Agent-friendly with pay-per-call pricing.',
+  version: '4.0',
+  description: 'Uniswap V4 Continuous Clearing Auction analytics. AI agents can pay per call with USDC on Base via x402.',
   agent_discovery: '/.well-known/ai-plugin.json',
   tiers: {
     free: {
@@ -217,26 +360,30 @@ const DOCS = {
     },
     pro: {
       rate: `${PRO_RATE_LIMIT} requests/minute`,
-      price: 'Per-call (USDC) or API key',
+      price: 'Per-call USDC on Base (x402) or API key',
       endpoints: [
         'GET /api/v1/auctions — full auction data ($0 with key)',
         'GET /api/v1/auctions/:name — full single auction ($0 with key)',
-        'GET /api/v1/summary — summary stats + bidder insights ($0 with key)',
+        'GET /api/v1/summary — summary + bidder insights ($0 with key)',
         'GET /api/v1/overlap — bidder overlap matrix ($0.001/call)',
         'GET /api/v1/bidders — bidder index ($0.005/call)',
         'GET /api/v1/concentration — concentration metrics ($0.001/call)',
       ],
       auth: [
-        'X-API-Key header (current — DM @monkrus on Telegram or X)',
-        'Cloudflare agent wallet (coming soon — pay-per-call with USDC)',
+        'x402: Send GET → receive 402 with PAYMENT-REQUIRED → sign USDC payment → retry with PAYMENT-SIGNATURE header',
+        'API key: X-API-Key header (DM @monkrus on Telegram or X)',
       ],
     },
   },
   pricing: {
+    protocol: 'x402 (https://docs.x402.org)',
     currency: 'USDC',
+    network: 'Base (eip155:8453)',
+    facilitator: FACILITATOR_URL,
     model: 'per_call',
-    status: 'API keys active. Cloudflare wallet payments coming soon.',
-    endpoints: PRICING,
+    endpoints: Object.fromEntries(
+      Object.entries(PRICING).map(([k, v]) => [k, v.price === 0 ? 'free' : `$${v.price}`])
+    ),
   },
   utility: {
     usage: 'GET /api/v1/usage/:identity — view your usage stats (pro)',
@@ -273,14 +420,14 @@ export default {
     }
 
     // ── Auth + rate limit ─────────────────────────────────────────────────
-    const auth = authenticate(request, env);
+    let auth = authenticate(request, env);
     const isPro = auth.tier === 'pro';
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
     const rate = checkRate(ip, isPro);
     const rateHeaders = {
       'X-RateLimit-Limit': String(rate.limit),
       'X-RateLimit-Remaining': String(rate.remaining),
-      'X-API-Tier': auth.tier,
+      'X-API-Tier': auth.tier === 'pending_x402' ? 'x402' : auth.tier,
       'X-Auth-Method': auth.method,
     };
 
@@ -317,10 +464,10 @@ export default {
     if (!dataResp) return json({ error: 'Failed to fetch data' }, 502, rateHeaders);
     const data = await dataResp.json();
 
-    // Normalize endpoint path for metering (strip single-auction name)
+    // Normalize endpoint path for metering
     const meterPath = path.match(/^\/api\/v1\/auctions\/.+$/) ? '/api/v1/auctions' : path;
 
-    // Record usage asynchronously (non-blocking)
+    // Record usage asynchronously
     if (auth.identity) {
       const usagePromise = recordUsage(env, auth, meterPath);
       if (ctx?.waitUntil) {
@@ -340,27 +487,26 @@ export default {
       return json({ timestamp: data.timestamp, summary }, 200, rateHeaders);
     }
 
-    // ── /api/v1/overlap (pro only) ───────────────────────────────────────
+    // ── /api/v1/overlap (pro only — $0.001/call) ─────────────────────────
     if (path === '/api/v1/overlap') {
-      if (!isPro) {
-        return json(
-          { error: 'Pro access required', pricing: '$0.001/call', auth_options: DOCS.tiers.pro.auth },
-          403,
-          rateHeaders,
-        );
+      const access = await requirePro(auth, '/api/v1/overlap', env, rateHeaders);
+      if (!access.authorized) return access.response;
+      auth = access.auth;
+
+      let response = json({ overlapMatrix: data.summary?.overlapMatrix || {} }, 200, rateHeaders);
+
+      if (auth.settlementData && ctx?.waitUntil) {
+        ctx.waitUntil(settleX402Payment(auth.settlementData, '/api/v1/overlap', env.PAYMENT_ADDRESS));
       }
-      return json({ overlapMatrix: data.summary?.overlapMatrix || {} }, 200, rateHeaders);
+      return response;
     }
 
-    // ── /api/v1/concentration (pro only) ─────────────────────────────────
+    // ── /api/v1/concentration (pro only — $0.001/call) ───────────────────
     if (path === '/api/v1/concentration') {
-      if (!isPro) {
-        return json(
-          { error: 'Pro access required', pricing: '$0.001/call', auth_options: DOCS.tiers.pro.auth },
-          403,
-          rateHeaders,
-        );
-      }
+      const access = await requirePro(auth, '/api/v1/concentration', env, rateHeaders);
+      if (!access.authorized) return access.response;
+      auth = access.auth;
+
       const real = data.auctions.filter(a => !a.isTest && a.concentration);
       const result = real.map(a => ({
         name: a.name,
@@ -369,23 +515,30 @@ export default {
         graduated: a.graduated,
         concentration: a.concentration,
       }));
-      return json({ timestamp: data.timestamp, count: result.length, auctions: result }, 200, rateHeaders);
+      let response = json({ timestamp: data.timestamp, count: result.length, auctions: result }, 200, rateHeaders);
+
+      if (auth.settlementData && ctx?.waitUntil) {
+        ctx.waitUntil(settleX402Payment(auth.settlementData, '/api/v1/concentration', env.PAYMENT_ADDRESS));
+      }
+      return response;
     }
 
-    // ── /api/v1/bidders (pro only) ───────────────────────────────────────
+    // ── /api/v1/bidders (pro only — $0.005/call) ─────────────────────────
     if (path === '/api/v1/bidders') {
-      if (!isPro) {
-        return json(
-          { error: 'Pro access required', pricing: '$0.005/call', auth_options: DOCS.tiers.pro.auth },
-          403,
-          rateHeaders,
-        );
-      }
+      const access = await requirePro(auth, '/api/v1/bidders', env, rateHeaders);
+      if (!access.authorized) return access.response;
+      auth = access.auth;
+
       const bidderResp = await fetchData(cacheApi, BIDDER_URL);
       if (!bidderResp) return json({ error: 'Bidder data unavailable' }, 502, rateHeaders);
       const bidders = await bidderResp.json();
       const count = typeof bidders === 'object' ? Object.keys(bidders).length : 0;
-      return json({ count, bidders }, 200, rateHeaders);
+      let response = json({ count, bidders }, 200, rateHeaders);
+
+      if (auth.settlementData && ctx?.waitUntil) {
+        ctx.waitUntil(settleX402Payment(auth.settlementData, '/api/v1/bidders', env.PAYMENT_ADDRESS));
+      }
+      return response;
     }
 
     // ── /api/v1/auctions/:name ───────────────────────────────────────────
@@ -433,7 +586,7 @@ export default {
       return json({
         timestamp: data.timestamp,
         count: auctions.length,
-        tier: auth.tier,
+        tier: auth.tier === 'pending_x402' ? 'free' : auth.tier,
         auctions: isPro ? auctions : auctions.map(stripToFree),
       }, 200, rateHeaders);
     }

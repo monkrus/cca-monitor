@@ -6,9 +6,9 @@ compatibility_date = "2024-01-01"
 # Dev:    cd api && npx wrangler dev
 # Free tier: 100K requests/day (Cloudflare)
 
-# API keys for pro tier (set via wrangler secret):
-#   npx wrangler secret put API_KEYS
-#   Enter comma-separated keys: key1,key2,key3
+# Secrets (set via wrangler secret):
+#   npx wrangler secret put API_KEYS        — comma-separated pro API keys
+#   npx wrangler secret put PAYMENT_ADDRESS  — 0x wallet address for USDC payments
 
 # ─── Usage metering KV ────────────────────────────────────────────
 # Create the namespace first:
