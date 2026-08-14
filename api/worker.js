@@ -65,6 +65,7 @@ const AI_PLUGIN = {
   legal_info_url: 'https://github.com/monkrus/cca-monitor',
 };
 
+const BASE = 'https://cca-monitor-api.sergeigodev.workers.dev';
 const DATA_URL = 'https://raw.githubusercontent.com/monkrus/cca-monitor/master/data/results.json';
 const BIDDER_URL = 'https://raw.githubusercontent.com/monkrus/cca-monitor/master/data/bidder-index.json';
 const CACHE_TTL = 300; // 5 minutes
@@ -342,6 +343,179 @@ function withPaymentReceipt(response, receipt) {
   return new Response(response.body, { status: response.status, headers });
 }
 
+// ─── Agent-readiness: static content ────────────────────────────────────────
+
+const ROBOTS_TXT = `User-agent: *
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: CCBot
+Allow: /
+
+Content-Signal: ai-train=no
+Content-Signal: search=yes
+Content-Signal: ai-input=yes
+
+Sitemap: ${BASE}/sitemap.xml
+`;
+
+const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${BASE}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>${BASE}/api/v1/auctions</loc><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>${BASE}/api/v1/summary</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
+  <url><loc>${BASE}/api/v1/concentration</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>${BASE}/api/v1/overlap</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>${BASE}/api/v1/bidders</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>${BASE}/.well-known/ai-plugin.json</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+</urlset>`;
+
+const API_CATALOG = {
+  linkset: [
+    {
+      anchor: `${BASE}/`,
+      'service-desc': [{ href: `${BASE}/.well-known/ai-plugin.json`, type: 'application/json' }],
+      'service-doc': [{ href: `${BASE}/`, type: 'application/json' }],
+      describedby: [{ href: `${BASE}/.well-known/ai-plugin.json`, type: 'application/json' }],
+    },
+  ],
+};
+
+const AGENT_SKILLS = {
+  $schema: 'https://agentskills.io/schema/v0.2.0/index.json',
+  skills: [
+    {
+      name: 'list-auctions',
+      type: 'api',
+      description: 'List Uniswap V4 CCA auctions with optional filters (chain, status, hook, search)',
+      url: `${BASE}/api/v1/auctions`,
+    },
+    {
+      name: 'get-auction',
+      type: 'api',
+      description: 'Get details for a specific CCA auction by name or token symbol',
+      url: `${BASE}/api/v1/auctions/{name}`,
+    },
+    {
+      name: 'get-summary',
+      type: 'api',
+      description: 'Get summary statistics across all CCA auctions',
+      url: `${BASE}/api/v1/summary`,
+    },
+    {
+      name: 'get-concentration',
+      type: 'api',
+      description: 'Get bidder concentration metrics (HHI, Gini, top-N share) for all auctions. Pro: $0.001/call USDC via x402.',
+      url: `${BASE}/api/v1/concentration`,
+    },
+    {
+      name: 'get-overlap',
+      type: 'api',
+      description: 'Get bidder overlap matrix showing cross-auction bidder flow. Pro: $0.001/call USDC via x402.',
+      url: `${BASE}/api/v1/overlap`,
+    },
+    {
+      name: 'get-bidders',
+      type: 'api',
+      description: 'Get bidder index with cross-auction activity. Pro: $0.005/call USDC via x402.',
+      url: `${BASE}/api/v1/bidders`,
+    },
+  ],
+};
+
+const MCP_SERVER_CARD = {
+  serverInfo: {
+    name: 'cca-monitor',
+    version: '4.0',
+    description: 'Uniswap V4 Continuous Clearing Auction analytics API. Query auction results, bidder concentration, overlap matrices, and cross-auction activity.',
+  },
+  transport: {
+    type: 'https',
+    url: `${BASE}/api/v1`,
+  },
+  capabilities: {
+    resources: true,
+    tools: AGENT_SKILLS.skills.map(s => ({
+      name: s.name,
+      description: s.description,
+      inputSchema: { type: 'object', properties: {} },
+    })),
+  },
+  authentication: {
+    schemes: [
+      { type: 'apiKey', header: 'X-API-Key', description: 'Static API key for pro tier' },
+      { type: 'x402', description: 'Pay-per-call USDC on Base via x402 protocol' },
+    ],
+  },
+};
+
+const MARKDOWN_DOCS = `# CCA Monitor API v4.0
+
+Uniswap V4 Continuous Clearing Auction analytics. AI agents can pay per call with USDC on Base via x402.
+
+## Agent Discovery
+
+- Plugin manifest: [/.well-known/ai-plugin.json](${BASE}/.well-known/ai-plugin.json)
+- API catalog: [/.well-known/api-catalog](${BASE}/.well-known/api-catalog)
+- Agent skills: [/.well-known/agent-skills/index.json](${BASE}/.well-known/agent-skills/index.json)
+- MCP server card: [/.well-known/mcp/server-card.json](${BASE}/.well-known/mcp/server-card.json)
+- x402 discovery: [/.well-known/x402](${BASE}/.well-known/x402)
+
+## Free Endpoints (no auth)
+
+| Endpoint | Description |
+|----------|-------------|
+| GET /api/v1/auctions | List auctions (basic fields) |
+| GET /api/v1/auctions/:name | Single auction by name or symbol |
+| GET /api/v1/summary | Summary statistics |
+
+## Pro Endpoints (API key or x402 USDC payment)
+
+| Endpoint | Price | Description |
+|----------|-------|-------------|
+| GET /api/v1/concentration | $0.001/call | Bidder concentration metrics (HHI, Gini) |
+| GET /api/v1/overlap | $0.001/call | Bidder overlap matrix |
+| GET /api/v1/bidders | $0.005/call | Bidder index with cross-auction activity |
+
+## Authentication
+
+1. **API Key**: Set \`X-API-Key\` header. Contact @monkrus on Telegram or X.
+2. **x402**: Send GET request → receive 402 with \`PAYMENT-REQUIRED\` header → sign USDC payment → retry with \`PAYMENT-SIGNATURE\` header. See [docs.x402.org](https://docs.x402.org).
+
+## Filters
+
+- \`chain\`: mainnet, base, arbitrum, unichain
+- \`status\`: graduated, failed
+- \`hook\`: true, false
+- \`test\`: true (include test auctions)
+- \`q\`: search token name/symbol
+
+## Links
+
+- Dashboard: [monkrus.github.io/cca-monitor](https://monkrus.github.io/cca-monitor)
+- Source: [github.com/monkrus/cca-monitor](https://github.com/monkrus/cca-monitor)
+`;
+
 // ─── Docs ───────────────────────────────────────────────────────────────────
 const DOCS = {
   name: 'CCA Monitor API',
@@ -409,14 +583,86 @@ export default {
       return cors(new Response(null, { status: 204 }));
     }
 
-    // ── Agent discovery ───────────────────────────────────────────────────
+    // ── Agent-readiness routes (no rate limit) ─────────────────────────
+    if (path === '/robots.txt') {
+      return cors(new Response(ROBOTS_TXT, {
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      }));
+    }
+
+    if (path === '/sitemap.xml') {
+      return cors(new Response(SITEMAP_XML, {
+        headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+      }));
+    }
+
     if (path === '/.well-known/ai-plugin.json') {
       return json(AI_PLUGIN);
     }
 
-    // ── Docs (no rate limit) ──────────────────────────────────────────────
+    if (path === '/.well-known/api-catalog') {
+      const resp = new Response(JSON.stringify(API_CATALOG), {
+        headers: { 'Content-Type': 'application/linkset+json' },
+      });
+      return cors(resp);
+    }
+
+    if (path === '/.well-known/agent-skills/index.json') {
+      return json(AGENT_SKILLS);
+    }
+
+    if (path === '/.well-known/mcp/server-card.json' || path === '/.well-known/mcp.json' || path === '/.well-known/mcp/server-cards.json') {
+      return json(MCP_SERVER_CARD);
+    }
+
+    // x402 resource discovery — advertises paid endpoints and pricing
+    if (path === '/.well-known/x402' || path === '/x402/discovery/resources') {
+      return json({
+        protocol: 'x402',
+        facilitator: FACILITATOR_URL,
+        network: PAYMENT_NETWORK,
+        currency: 'USDC',
+        resources: Object.entries(PRICING)
+          .filter(([, v]) => v.tier === 'pro')
+          .map(([endpoint, v]) => ({
+            resource: `${BASE}${endpoint}`,
+            method: 'GET',
+            scheme: 'exact',
+            maxAmountRequired: v.usdcUnits,
+            price: `$${v.price}`,
+            description: `CCA Monitor API — ${endpoint}`,
+          })),
+      });
+    }
+
+    // ── Docs (no rate limit) — with Link headers for agent discovery ──────
     if (path === '/' || path === '/api' || path === '/api/v1') {
-      return json(DOCS);
+      const accept = request.headers.get('Accept') || '';
+      const linkHeader = [
+        `<${BASE}/.well-known/api-catalog>; rel="api-catalog"`,
+        `<${BASE}/.well-known/ai-plugin.json>; rel="service-desc"`,
+        `<${BASE}/sitemap.xml>; rel="sitemap"`,
+      ].join(', ');
+      const extraHeaders = {
+        'Link': linkHeader,
+        'X-Payment-Protocol': 'x402',
+        'X-Payment-Network': PAYMENT_NETWORK,
+        'X-Payment-Currency': 'USDC',
+      };
+
+      // Markdown content negotiation — return docs as markdown when requested
+      if (accept.includes('text/markdown')) {
+        const resp = cors(new Response(MARKDOWN_DOCS, {
+          headers: {
+            'Content-Type': 'text/markdown; charset=utf-8',
+            ...extraHeaders,
+          },
+        }));
+        return resp;
+      }
+
+      const resp = json(DOCS, 200, extraHeaders);
+      return resp;
     }
 
     // ── Auth + rate limit ─────────────────────────────────────────────────
