@@ -71,7 +71,9 @@ Each auction record includes:
 
 Live REST API at **https://cca-monitor-api.sergeigodev.workers.dev** (Cloudflare Workers, free tier: 100K requests/day).
 
-### Free tier (no key required)
+Agent-ready: scored **64/100** on [isitagentready.com](https://isitagentready.com). Cloudflare Wallet handle: `@cca-monitor`.
+
+### Free tier (no auth required)
 
 | Endpoint | Description |
 |----------|-------------|
@@ -81,22 +83,37 @@ Live REST API at **https://cca-monitor-api.sergeigodev.workers.dev** (Cloudflare
 
 Rate limit: 30 requests/minute. Basic fields only.
 
-### Pro tier (requires `X-API-Key` header)
+### Pro tier (API key or x402 USDC payment)
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/v1/auctions` | Full auction data with concentration metrics |
-| `GET /api/v1/auctions/:name` | Full single auction |
-| `GET /api/v1/summary` | Summary stats + bidder insights |
-| `GET /api/v1/overlap` | Bidder overlap matrix |
-| `GET /api/v1/bidders` | Bidder index (15,520 wallets) |
-| `GET /api/v1/concentration` | HHI + top-5 concentration for all auctions |
+| Endpoint | Price | Description |
+|----------|-------|-------------|
+| `GET /api/v1/auctions` | — | Full auction data with concentration metrics |
+| `GET /api/v1/auctions/:name` | — | Full single auction |
+| `GET /api/v1/summary` | — | Summary stats + bidder insights |
+| `GET /api/v1/overlap` | $0.001/call | Bidder overlap matrix |
+| `GET /api/v1/bidders` | $0.005/call | Bidder index (15,520 wallets) |
+| `GET /api/v1/concentration` | $0.001/call | HHI + top-5 concentration for all auctions |
 
-Rate limit: 300 requests/minute. For API access, DM [@monkrus](https://t.me/monkrus) on Telegram or X.
+Rate limit: 300 requests/minute. Two ways to access:
 
-First 5 keys free for 30 days — try it out.
+1. **API key**: Set `X-API-Key` header. DM [@monkrus](https://t.me/monkrus) on Telegram or X. First 5 keys free for 30 days.
+2. **x402 payment**: AI agents pay per call with USDC on Base — no signup needed. Send GET, receive HTTP 402 with `Payment-Required` header, sign payment, retry with `Payment-Signature` header. See [docs.x402.org](https://docs.x402.org).
 
-CORS enabled. Responses cached 5 minutes.
+### Agent discovery
+
+| Endpoint | Format | Purpose |
+|----------|--------|---------|
+| `/.well-known/ai-plugin.json` | JSON | AI agent plugin manifest (capabilities, auth, pricing) |
+| `/.well-known/api-catalog` | linkset+json | RFC 9727 API catalog |
+| `/.well-known/agent-skills/index.json` | JSON | Agent Skills Discovery v0.2.0 |
+| `/.well-known/mcp/server-card.json` | JSON | MCP Server Card |
+| `/.well-known/x402` | JSON | x402 payment discovery (paid endpoints + pricing) |
+| `/robots.txt` | text | AI bot rules + Content Signals |
+| `/sitemap.xml` | XML | All API endpoints |
+
+Homepage returns `Link` headers for agent discovery and supports `Accept: text/markdown` content negotiation.
+
+CORS enabled. Responses cached 5 minutes. GET only (POST/PUT/DELETE return 405).
 
 ```bash
 # Self-host
