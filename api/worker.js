@@ -177,7 +177,8 @@ function return402(endpoint, payTo, rateHeaders) {
     alternatives: ['X-API-Key header (contact @monkrus on Telegram or X)'],
   };
 
-  const encoded = btoa(JSON.stringify(paymentRequired));
+  const paymentJson = JSON.stringify(paymentRequired);
+  const encoded = btoa(unescape(encodeURIComponent(paymentJson)));
   return json(body, 402, {
     ...rateHeaders,
     'Payment-Required': encoded,
