@@ -584,6 +584,10 @@ export default {
       return cors(new Response(null, { status: 204 }));
     }
 
+    if (request.method !== 'GET') {
+      return json({ error: 'Method not allowed. This API only accepts GET requests.' }, 405, { 'Allow': 'GET, OPTIONS' });
+    }
+
     // ── Agent-readiness routes (no rate limit) ─────────────────────────
     if (path === '/robots.txt') {
       return cors(new Response(ROBOTS_TXT, {
