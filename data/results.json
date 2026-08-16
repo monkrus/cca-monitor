@@ -1,22 +1,22 @@
 {
-  "timestamp": "2026-08-15T06:31:09.370Z",
+  "timestamp": "2026-08-16T15:44:28.418Z",
   "summary": {
-    "total": 16,
-    "real": 5,
+    "total": 17,
+    "real": 6,
     "tests": 11,
-    "graduated": 8,
+    "graduated": 9,
     "failed": 8,
     "withHooks": 2,
     "bidderInsights": {
-      "totalUnique": 15520,
-      "repeatBidders": 86,
-      "recurrenceRate": "0.55%",
-      "repeatInHooked": 113,
-      "repeatInOpen": 68,
-      "repeatHookedPct": "62.4%",
-      "singleInHooked": 14399,
-      "singleInOpen": 1035,
-      "singleHookedPct": "93.3%"
+      "totalUnique": 16976,
+      "repeatBidders": 150,
+      "recurrenceRate": "0.88%",
+      "repeatInHooked": 164,
+      "repeatInOpen": 151,
+      "repeatHookedPct": "52.1%",
+      "singleInHooked": 14348,
+      "singleInOpen": 2478,
+      "singleHookedPct": "85.3%"
     },
     "overlapMatrix": {
       "AZTEC": {
@@ -24,6 +24,7 @@
         "STRATO": 6,
         "wOCT": 30,
         "CAP": 32,
+        "RNBW": 52,
         "AKITA": 0
       },
       "STRATO": {
@@ -31,6 +32,7 @@
         "STRATO": 0,
         "wOCT": 10,
         "CAP": 13,
+        "RNBW": 5,
         "AKITA": 0
       },
       "wOCT": {
@@ -38,6 +40,7 @@
         "STRATO": 10,
         "wOCT": 0,
         "CAP": 14,
+        "RNBW": 15,
         "AKITA": 0
       },
       "CAP": {
@@ -45,6 +48,15 @@
         "STRATO": 13,
         "wOCT": 14,
         "CAP": 0,
+        "RNBW": 5,
+        "AKITA": 0
+      },
+      "RNBW": {
+        "AZTEC": 52,
+        "STRATO": 5,
+        "wOCT": 15,
+        "CAP": 5,
+        "RNBW": 0,
         "AKITA": 0
       },
       "AKITA": {
@@ -52,6 +64,7 @@
         "STRATO": 0,
         "wOCT": 0,
         "CAP": 0,
+        "RNBW": 0,
         "AKITA": 0
       }
     }
@@ -513,7 +526,7 @@
         "lateBidPct": 17.25,
         "effectiveCompetition": true
       },
-      "repeatBidders": 63
+      "repeatBidders": 112
     },
     {
       "name": "STRATO",
@@ -558,7 +571,7 @@
         "lateBidPct": 12.17,
         "effectiveCompetition": true
       },
-      "repeatBidders": 22
+      "repeatBidders": 23
     },
     {
       "name": "wOCT",
@@ -568,7 +581,7 @@
       "tokenAddress": "0x4647e1fE715c9e23959022C2416C71867F5a6E80",
       "tokenName": "Wrapped OCT",
       "tokenSymbol": "wOCT",
-      "tokenSupply": "198,281,134",
+      "tokenSupply": "198,193,444",
       "startBlock": "24870973",
       "endBlock": "24921374",
       "floorPrice_Q96": "4294967300",
@@ -602,11 +615,11 @@
         "lateBidPct": 7.12,
         "effectiveCompetition": true
       },
-      "repeatBidders": 46,
-      "currentPriceUsd": "0.02068",
-      "priceChange24h": "-10.98",
-      "volume24h": "83979.9",
-      "priceSnapshotAt": "2026-08-15T06:31:09.256Z"
+      "repeatBidders": 58,
+      "currentPriceUsd": "0.02054",
+      "priceChange24h": "-0.83",
+      "volume24h": "4833.57",
+      "priceSnapshotAt": "2026-08-16T15:44:28.143Z"
     },
     {
       "name": "CAP",
@@ -650,7 +663,55 @@
         "lateBidPct": 5.99,
         "effectiveCompetition": true
       },
-      "repeatBidders": 50
+      "repeatBidders": 52
+    },
+    {
+      "name": "RNBW",
+      "chain": "base",
+      "contractAddress": "0x7e867b47a94df05188c08575e8b9a52f3f69c469",
+      "isTest": false,
+      "tokenAddress": "0xa53887F7e7c1bf5010b8627F1C1ba94fE7a5d6E0",
+      "tokenName": "Rainbow",
+      "tokenSymbol": "RNBW",
+      "tokenSupply": "999,998,822",
+      "startBlock": "41627527",
+      "endBlock": "41757127",
+      "floorPrice_Q96": "7922816251426400",
+      "floorPrice": "0.09999999",
+      "tickSpacing_Q96": "79228162514264",
+      "tickSpacingAsPctOfFloor": "1.0000%",
+      "durationBlocks": 129600,
+      "durationHours": 72,
+      "hasValidationHook": false,
+      "currency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "currencySymbol": "USDC",
+      "tokenDecimals": 18,
+      "currencyDecimals": 6,
+      "graduated": true,
+      "finalClearingPrice_Q96": "8794326039083304",
+      "clearingPrice": "0.11099999",
+      "clearingVsFloor": "111.0%",
+      "currencyRaised": "330578355640",
+      "currencyRaisedFormatted": "330,578.35 USDC",
+      "totalCleared": "3121541913844924100948657",
+      "flags": [
+        "NO_HOOK: no validation hook"
+      ],
+      "uniqueBidders": 1526,
+      "totalBids": 2137,
+      "bidScanPartial": false,
+      "concentration": {
+        "hhi": 1228,
+        "top5Pct": 58.28,
+        "top5Count": 5,
+        "lateBidPct": 31.07,
+        "effectiveCompetition": true
+      },
+      "repeatBidders": 70,
+      "currentPriceUsd": "0.01357",
+      "priceChange24h": "3.27",
+      "volume24h": "1744.32",
+      "priceSnapshotAt": "2026-08-16T15:44:28.415Z"
     },
     {
       "name": "AKITA",
@@ -695,8 +756,14 @@
         "p": 0.01827
       },
       {
-        "t": "2026-08-15T06:31:09.257Z",
-        "p": 0.02068
+        "t": "2026-08-16T15:44:28.149Z",
+        "p": 0.02054
+      }
+    ],
+    "RNBW": [
+      {
+        "t": "2026-08-16T15:44:28.416Z",
+        "p": 0.01357
       }
     ]
   }

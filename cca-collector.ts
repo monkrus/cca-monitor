@@ -69,6 +69,14 @@ const KNOWN_AUCTIONS = [
     isTest: false,
   },
   {
+    name: 'RNBW',
+    chain: 'base',
+    contractAddress: '0x7e867b47a94df05188c08575e8b9a52f3f69c469' as `0x${string}`,
+    startBlock: 41610525n,
+    notes: 'Rainbow wallet token. CCA Feb 2-5 2026, USDC currency, 5M tokens at $0.10 floor, graduated. First CCA on Uniswap web app.',
+    isTest: false,
+  },
+  {
     name: 'AKITA',
     chain: 'base',
     contractAddress: '0x84a0cBb49D18FD74598D1b7bAba2EEa6679F1dA8' as `0x${string}`,
@@ -378,6 +386,31 @@ function formatTelegramAlert(detection: Record<string, any>, analysis?: Record<s
 }
 
 // ─── Persistent data helpers ────────────────────────────────────────────────
+const DISCOVERED_FILE = 'data/discovered-auctions.json'
+
+interface DiscoveredAuction {
+  name: string
+  chain: string
+  contractAddress: string
+  startBlock: number
+  detectedAt: string
+  isTest: boolean
+  notes: string
+}
+
+function loadDiscoveredAuctions(): DiscoveredAuction[] {
+  return readJsonSafe<DiscoveredAuction[]>(DISCOVERED_FILE, [])
+}
+
+function saveDiscoveredAuction(entry: DiscoveredAuction) {
+  const existing = loadDiscoveredAuctions()
+  const idx = existing.findIndex(a => a.contractAddress.toLowerCase() === entry.contractAddress.toLowerCase())
+  if (idx >= 0) existing[idx] = entry
+  else existing.push(entry)
+  writeJsonAtomic(DISCOVERED_FILE, existing)
+  console.log(`  Saved to ${DISCOVERED_FILE} (${existing.length} discovered auctions)`)
+}
+
 function appendDetection(detection: Record<string, any>) {
   const file = 'data/live-detections.json'
   const existing = readJsonSafe<any[]>(file, [])
@@ -1930,7 +1963,27 @@ async function watchForNewAuctions() {
           console.log('  Auto-analyzing...')
           const entry = { name: `NEW_${name.toUpperCase()}`, chain: name, contractAddress: auction as `0x${string}`, startBlock: 0n, notes: `Auto-detected ${timestamp}`, isTest: false }
           const result = await analyzeAuction(entry)
-          if (result) appendResult(result)
+          if (result) {
+            // Auto-triage: classify as test if no bids or very short duration
+            const totalBids = 'totalBids' in result ? result.totalBids : 0
+            const isLikelyTest = (totalBids === 0 && result.durationHours < 1) || result.durationHours === 0
+            const resolvedName = result.tokenSymbol || `NEW_${name.toUpperCase()}`
+            result.name = resolvedName
+            result.isTest = isLikelyTest
+
+            appendResult(result)
+
+            // Persist to discovered-auctions.json so scheduled analyze picks it up
+            saveDiscoveredAuction({
+              name: resolvedName,
+              chain: name,
+              contractAddress: auction as string,
+              startBlock: Number(log.blockNumber),
+              detectedAt: timestamp,
+              isTest: isLikelyTest,
+              notes: `Auto-detected ${timestamp}. ${result.tokenName || ''} ${result.graduated ? '(graduated)' : '(not graduated)'}`.trim(),
+            })
+          }
 
           // Send Telegram alert
           const alertText = formatTelegramAlert(detection, result)
@@ -2045,9 +2098,27 @@ async function main() {
     // --real-only: analyze only real auctions, but UPSERT into existing file
     // (never shrinks the dataset — test records are preserved).
     // isTest filtering for display/alerts happens downstream, never here.
+
+    // Merge KNOWN_AUCTIONS with any auto-discovered auctions (dedupe by contractAddress)
+    const knownAddrs = new Set(KNOWN_AUCTIONS.map(a => a.contractAddress.toLowerCase()))
+    const discovered = loadDiscoveredAuctions()
+      .filter(d => !knownAddrs.has(d.contractAddress.toLowerCase()))
+      .map(d => ({
+        name: d.name,
+        chain: d.chain,
+        contractAddress: d.contractAddress as `0x${string}`,
+        startBlock: BigInt(d.startBlock),
+        notes: d.notes,
+        isTest: d.isTest,
+      }))
+    if (discovered.length > 0) {
+      console.log(`Found ${discovered.length} auto-discovered auction(s) not in KNOWN_AUCTIONS\n`)
+    }
+
+    const allAuctions = [...KNOWN_AUCTIONS, ...discovered]
     const auctions = realOnly
-      ? KNOWN_AUCTIONS.filter(a => !a.isTest)
-      : KNOWN_AUCTIONS
+      ? allAuctions.filter(a => !a.isTest)
+      : allAuctions
     if (realOnly) {
       console.log(`(--real-only: analyzing ${auctions.length} real auctions, preserving existing test records)\n`)
     } else {
