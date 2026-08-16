@@ -1,6 +1,6 @@
 # CCA Monitor
 
-[![CI](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml) [![Agent Ready](https://img.shields.io/badge/Agent_Ready-64%25-6366f1?style=flat&logo=cloudflare&logoColor=white)](https://cca-monitor-api.sergeigodev.workers.dev/.well-known/ai-plugin.json) [![x402](https://img.shields.io/badge/x402-USDC_on_Base-22c55e?style=flat)](https://docs.x402.org)
+[![CI](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/monkrus/cca-monitor/actions/workflows/ci.yml) [![Agent Ready — Accepts Payments](https://img.shields.io/badge/Agent_Ready-Accepts_x402_Payments-6366f1?style=flat&logo=cloudflare&logoColor=white)](https://cca-monitor-api.sergeigodev.workers.dev/.well-known/ai-plugin.json) [![USDC on Base](https://img.shields.io/badge/USDC-Pay_per_call_on_Base-22c55e?style=flat)](https://docs.x402.org)
 
 On-chain data collector and live monitor for Uniswap's Continuous Clearing Auctions (CCAs). Tracks 16 auctions (5 real, 11 test) across Ethereum, Base, Arbitrum, Unichain, Optimism, and Polygon with 15,520 unique bidder addresses indexed. 94 automated checks guard dataset integrity.
 
