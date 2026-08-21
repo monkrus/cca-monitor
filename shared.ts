@@ -17,6 +17,15 @@ export const unichain = defineChain({
   blockExplorers: { default: { name: 'Uniscan', url: 'https://uniscan.xyz' } },
 })
 
+// ─── Robinhood Chain ─────────────────────────────────────────────────────────
+export const robinhoodChain = defineChain({
+  id: 4663,
+  name: 'Robinhood Chain',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: ['https://rpc.mainnet.chain.robinhood.com'] } },
+  blockExplorers: { default: { name: 'Robinhood Explorer', url: 'https://explorer.chain.robinhood.com' } },
+})
+
 // ─── Chain config ────────────────────────────────────────────────────────────
 export const CHAINS: Record<string, { chain: any, secsPerBlock: number, explorer: string }> = {
   mainnet:  { chain: mainnet,  secsPerBlock: 12,   explorer: 'https://etherscan.io' },
@@ -25,6 +34,7 @@ export const CHAINS: Record<string, { chain: any, secsPerBlock: number, explorer
   unichain: { chain: unichain, secsPerBlock: 1,    explorer: 'https://uniscan.xyz' },
   optimism: { chain: optimism, secsPerBlock: 2,    explorer: 'https://optimistic.etherscan.io' },
   polygon:  { chain: polygon,  secsPerBlock: 2,    explorer: 'https://polygonscan.com' },
+  robinhood: { chain: robinhoodChain, secsPerBlock: 2, explorer: 'https://explorer.chain.robinhood.com' },
 }
 
 // ─── RPC clients ─────────────────────────────────────────────────────────────
@@ -34,6 +44,7 @@ export const PUBLIC_RPCS: Record<string, string[]> = {
   arbitrum: ['https://arbitrum.blockscout.com/api/eth-rpc'],
   optimism: ['https://mainnet.optimism.io', 'https://optimism.blockscout.com/api/eth-rpc'],
   polygon:  ['https://polygon.blockscout.com/api/eth-rpc', 'https://polygon.drpc.org', 'https://polygon-bor-rpc.publicnode.com'],
+  robinhood: ['https://rpc.mainnet.chain.robinhood.com'],
 }
 
 export function getClient(chainName: string, usePublicRpc = false, rpcIndex = 0) {
