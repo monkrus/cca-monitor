@@ -1020,7 +1020,7 @@ async function sendHeartbeat() {
     testGraduated = test.filter((a: any) => a.graduated).length
   }
 
-  const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain', 'optimism', 'polygon']
+  const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain', 'optimism', 'polygon', 'robinhood']
   const lines: string[] = []
   let hasWarning = false
   const oneHourAgo = Date.now() - 60 * 60 * 1000
@@ -1812,7 +1812,7 @@ async function pollBids() {
 async function watchForNewAuctions() {
   await checkCrashLoop('cca-watch')
   console.log('\nStarting new auction monitor...')
-  console.log('Watching factory on: Ethereum, Base, Arbitrum, Unichain, Optimism, Polygon')
+  console.log('Watching factory on: Ethereum, Base, Arbitrum, Unichain, Optimism, Polygon, Robinhood')
   console.log('Factory addresses:', FACTORY_ADDRESSES.join(', '))
   if (process.env.WEBHOOK_URL) console.log('Webhook (legacy): enabled')
   const webhookUrls = (process.env.ALERT_WEBHOOK_URLS || '').split(',').filter(Boolean)
@@ -1827,7 +1827,7 @@ async function watchForNewAuctions() {
   }
   console.log('-'.repeat(60))
 
-  const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain', 'optimism', 'polygon']
+  const chainNames = ['mainnet', 'base', 'arbitrum', 'unichain', 'optimism', 'polygon', 'robinhood']
   const lastBlock: Record<string, bigint> = {}
 
   // Load persisted last-block state (resume from where we left off)
